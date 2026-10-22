@@ -1,0 +1,542 @@
+{"id":"DLIvvM3DgYWojN_5f9DMXA",
+  "name": "03 - Caza señales",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ca875935-e199-47ca-9f8e-442473a3325d",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "cronExpression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "4bf21eee-c0db-4c90-a3ed-503a28ebe69b",
+      "name": "Diario 7am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "radar-03",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "764fba3e-ddb8-4a59-a95a-a86cfe7abb5a",
+      "name": "Webhook radar-03",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "filePath": "/signals/input.json"
+      },
+      "id": "4658b36b-1e36-4420-bfba-552111254a90",
+      "name": "Leer signals/input.json",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        880,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "binaryPropertyName": "data"
+      },
+      "id": "b3f4d2a1-5c6e-4f7a-9b8d-1e2f3a4b5c6d",
+      "name": "Parsear JSON",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        990,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// El nodo \"Parsear JSON\" (Extract from File) ya dereferenció el binario\n// filesystem-v2 y entregó un item { data: [...] }.\n// Formato: [{empresa, giro, tipo, evidencia, fecha}]\nconst arr = $input.first().json.data || [];\nconst q = (s) => \"'\" + String(s ?? '').replace(/'/g, \"''\") + \"'\";\n// input.json vacío -> un item bandera para no romper la cadena hacia warm_signals.\nif (!arr.length) return [{ _sin_senales: true }];\nreturn arr.map((s) => ({\n  nombre: q(s.empresa),\n  giro: q(s.giro || ''),\n  evidencia: q((s.tipo || '') + ' — ' + (s.evidencia || '')),\n}));\n"
+      },
+      "id": "3272121c-24af-47fc-8468-bfddefa1bfec",
+      "name": "Parsear señales",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH up AS (\n  UPDATE prod.leads\n  SET score = LEAST(score + 25, 100), etapa = 'nuevo', updated_at = now()\n  WHERE lower(nombre) = lower({{ $json.nombre }}) AND lower(direccion) = lower('')\n  RETURNING lead_id\n)\nINSERT INTO prod.leads (source, nombre, giro, direccion, score, etapa, linea_recomendada)\nSELECT 'manual', {{ $json.nombre }}, {{ $json.giro }}, '', 25, 'nuevo', 'evaporativa'\nWHERE NOT EXISTS (SELECT 1 FROM up);",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "9cfe0b75-c04e-47b6-8fd6-5f500e39be82",
+      "name": "Upsert +25",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1320,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{}];"
+      },
+      "id": "08406683-968b-4575-861a-234c18903ba4",
+      "name": "Consolidar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://api:8000/api/v1/pipelines/runs/{{ $('Registrar run (GEIS)').first().json.run_id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"estado\": \"ok\", \"detalle\": {\"origen\": \"n8n\", \"workflow\": \"03-signal-catcher\"}}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "6a675a9c-8958-4ef9-ada6-55d955e1be2a",
+      "name": "Callback Run OK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c479d76d-cfe1-466e-803c-32141bc4c8c4",
+              "name": "stage",
+              "type": "string",
+              "value": "radar-03"
+            },
+            {
+              "id": "3c15b018-def5-4fbd-beae-5df259d653e3",
+              "name": "nota",
+              "type": "string",
+              "value": "Señales de signals/input.json procesadas (+25 score)"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "af0c45ca-51c8-42ee-9f8a-cbe277bf4366",
+      "name": "Resumen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2860,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT signal_id AS id, titulo, detalle, empresa_ref FROM prod.warm_signals WHERE procesada = false ORDER BY signal_id LIMIT 50;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "116f6838-25a0-417a-b133-52692ee99427",
+      "name": "Leer warm signals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1540,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Convierte warm_signals al formato del upsert (nombre/giro ya escapados).\nconst q = (s) => \"'\" + String(s ?? '').replace(/'/g, \"''\") + \"'\";\nconst rows = $('Leer warm signals').all().map(i => i.json).filter(r => (r.empresa_ref || '').trim());\nreturn rows.map(r => ({ nombre: q(r.empresa_ref.trim()), giro: q(''),\n  nota: (r.titulo || '') + ' — ' + (r.detalle || '') }));"
+      },
+      "id": "d5059776-e103-4858-aa56-905d27ac4de1",
+      "name": "Armar warm",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH up AS (\n  UPDATE prod.leads\n  SET score = LEAST(score + 25, 100), etapa = 'nuevo', updated_at = now()\n  WHERE lower(nombre) = lower({{ $json.nombre }}) AND lower(direccion) = lower('')\n  RETURNING lead_id\n)\nINSERT INTO prod.leads (source, nombre, giro, direccion, score, etapa, linea_recomendada)\nSELECT 'manual', {{ $json.nombre }}, {{ $json.giro }}, '', 25, 'nuevo', 'evaporativa'\nWHERE NOT EXISTS (SELECT 1 FROM up);",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "87abf115-097b-44ba-b151-c303a68b3583",
+      "name": "Upsert warm +25",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1980,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE prod.warm_signals SET procesada = true WHERE procesada = false;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "40071da5-5825-49b2-b69e-67b16b694427",
+      "name": "Marcar warm procesadas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2200,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/pipelines/run/radar-03",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"origen\": \"n8n\"}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "8608e890-dde6-421e-9b9e-303528f62d03",
+      "name": "Registrar run (GEIS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "9321d38b-f55c-4c39-bb57-fe6ca8068595",
+              "leftValue": "={{ $json.run_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.string.notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "95268380-2fae-4c1a-85d3-0b71256da89a",
+      "name": "¿Run registrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "1c8a5d4e-d3c2-4508-943a-927483eadead",
+              "leftValue": "={{ $json._sin_senales }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isEmpty",
+                "name": "filter.operator.string.isEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "f205e1fd-ed13-467e-bb15-8044b009fb91",
+      "name": "¿Señales manuales?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        620
+      ]
+    }
+  ],
+  "connections": {
+    "Manual": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diario 7am": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook radar-03": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer signals/input.json": {
+      "main": [
+        [
+          {
+            "node": "Parsear JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear JSON": {
+      "main": [
+        [
+          {
+            "node": "Parsear señales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear señales": {
+      "main": [
+        [
+          {
+            "node": "¿Señales manuales?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert +25": {
+      "main": [
+        [
+          {
+            "node": "Leer warm signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer warm signals": {
+      "main": [
+        [
+          {
+            "node": "Armar warm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar warm": {
+      "main": [
+        [
+          {
+            "node": "Upsert warm +25",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert warm +25": {
+      "main": [
+        [
+          {
+            "node": "Marcar warm procesadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar warm procesadas": {
+      "main": [
+        [
+          {
+            "node": "Consolidar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback Run OK": {
+      "main": [
+        [
+          {
+            "node": "Resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar run (GEIS)": {
+      "main": [
+        [
+          {
+            "node": "¿Run registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Run registrado?": {
+      "main": [
+        [
+          {
+            "node": "Leer signals/input.json",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "¿Señales manuales?": {
+      "main": [
+        [
+          {
+            "node": "Upsert +25",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer warm signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "timezone": "America/Mexico_City"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

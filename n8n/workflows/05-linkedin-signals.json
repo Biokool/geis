@@ -1,0 +1,866 @@
+{"id":"y3KcfTKXRZ5jJEDttOsIbZ",
+  "name": "05 - Señales LinkedIn",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "6dfea4fd-dc24-46f7-be4a-95ef27316946",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "cronExpression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "3418d769-e92c-4947-825a-a42ba5c92ab6",
+      "name": "Lunes 8am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "radar-05",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "af5c435f-c09b-4336-97c1-ad33295b394d",
+      "name": "Webhook radar-05",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{}];"
+      },
+      "id": "41913a6d-5477-4879-b82a-cb6597e60f23",
+      "name": "Lote único",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT mode, config FROM prod.providers WHERE name='linkedin';",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "f24cfd04-4b63-41d1-833e-ecefa4348333",
+      "name": "Leer config linkedin",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1100,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "22153cab-f260-4ca6-94fa-1a49e4dc38c9",
+              "leftValue": "={{ $json.mode }}",
+              "rightValue": "cloud",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "9fa27b95-4ca8-49d8-ab50-cd732c1b587f",
+      "name": "¿Activo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ nota: 'LinkedIn desactivado. Conéctalo en Config → LinkedIn.' }];"
+      },
+      "id": "eb480454-f3f2-43c5-a4a3-0dd25be078b0",
+      "name": "Fin (inactivo)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const c = ($input.first().json.config) || {};\nconst token = c.access_token || '';\nconst org_id = c.org_id || '';\nconst vanity = c.vanity_name || '';\nconst vigente = !!token && !!vanity && (!c.expires_at || Date.now() < c.expires_at - 60000);\nconst motivo = !token ? 'sin token: conecta en Config → LinkedIn' : (!org_id ? 'falta org_id: Config → Proveedores → linkedin → config.org_id' : (!vanity ? 'falta vanity_name: Config → Proveedores → linkedin → config.vanity_name' : (vigente ? '' : 'token expirado: reconecta en Config → LinkedIn')));\nreturn [{ token, org_id, vanity, vigente, motivo }];"
+      },
+      "id": "db0c4530-d5a2-4d50-ac6d-6fbbdeeeeb3a",
+      "name": "Checar token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "52329a50-8df3-43ec-bc8d-e2025bda2317",
+              "leftValue": "={{ $json.vigente }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "name": "filter.operator.boolean.true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "11fef169-df1f-4479-8793-29cc37a28e31",
+      "name": "¿Token vigente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const m = $('Checar token').first().json.motivo || 'token inválido';\nconst esc = s => String(s).replace(/'/g, \"''\");\nreturn [{ query: `INSERT INTO prod.warm_signals (fuente, titulo, detalle) VALUES ('linkedin','LinkedIn: reconexión necesaria','${esc(m)}')` }];"
+      },
+      "id": "29e07e71-2e8e-4b35-834a-1ce57929498a",
+      "name": "Aviso token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "093d76e3-7002-4e53-af5d-48ca799e9838",
+      "name": "Insertar aviso",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2200,
+        800
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT followers FROM prod.linkedin_stats ORDER BY stats_date DESC LIMIT 1) AS followers;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "2e957e9c-f00f-4a3b-a197-fc9b4323a59a",
+      "name": "Stats previas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1980,
+        440
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.linkedin.com/v2/networkSizes/urn%3Ali%3Aorganization%3A{{ $('Checar token').first().json.org_id }}?edgeType=CompanyFollowedByMember",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token || $('Checar token').first().json.token }}"
+            },
+            {
+              "name": "Linkedin-Version",
+              "value": "202610"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "55f4d0b8-a999-4789-ae45-a5d0e206230e",
+      "name": "Stats seguidores",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        440
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.linkedin.com/company/{{ $('Checar token').first().json.vanity }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "es-MX,es;q=0.9,en;q=0.8"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "78999dc9-c475-456a-9496-55f3d040cb6e",
+      "name": "Posts recientes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2420,
+        440
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const html = $input.first().json.data || '';\nconst tok = $('Checar token').first().json.token;\nconst urns = [...new Set(html.match(/urn:li:activity:\\d+/g) || [])].slice(0, 5);\nreturn urns.length ? urns.map(u => ({ urn: u, token: tok })) : [{ urn: '', token: tok }];"
+      },
+      "id": "e8d3bf00-0cc8-4dff-979a-4e54aaeb1a17",
+      "name": "Top 5 URNs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.linkedin.com/v2/socialActions/{{ encodeURIComponent($json.urn) }}/likes?count=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token || $('Checar token').first().json.token }}"
+            },
+            {
+              "name": "Linkedin-Version",
+              "value": "202610"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "22b744b5-2750-4068-b229-0ddd95b40e09",
+      "name": "Likes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        440
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const src = $('Top 5 URNs').item.json;\nconst total = ($json.paging && $json.paging.total) || 0;\nreturn { json: { urn: src.urn, token: src.token, likes: total } };"
+      },
+      "id": "9ee65ae3-d698-4c8a-a895-5489270c5e6b",
+      "name": "Juntar likes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.linkedin.com/v2/socialActions/{{ encodeURIComponent($json.urn) }}/comments?count=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token || $('Checar token').first().json.token }}"
+            },
+            {
+              "name": "Linkedin-Version",
+              "value": "202610"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "98142488-a8f1-4143-9503-a37c3641f0a6",
+      "name": "Comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3300,
+        440
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const src = $('Juntar likes').item.json;\nconst total = ($json.paging && $json.paging.total) || 0;\nreturn { json: { urn: src.urn, token: src.token, likes: src.likes, comments: total } };"
+      },
+      "id": "73d15de0-f9bb-4577-b1c4-bc262254ef8f",
+      "name": "Juntar todo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const posts = $('Juntar todo').all().map(i => i.json).filter(p => p.urn);\nconst segs = $('Stats seguidores').first().json;\nconst prev = ($('Stats previas').all()[0] && $('Stats previas').first().json) || {};\nconst tok = $('Checar token').first().json;\nconst followers = (segs && segs.firstDegreeSize) || 0;\nconst newF = followers - (prev.followers || 0);\nconst eng = posts.reduce((a,p) => a + (p.likes||0) + (p.comments||0), 0);\nconst sig = [];\nif (newF >= 3) sig.push({ t: `LinkedIn: +${newF} seguidores nuevos`, d: `La página pasó de ${prev.followers||0} a ${followers} seguidores. Publica y prospecta esta semana.` });\nposts.forEach(p => { const e = (p.likes||0) + (p.comments||0);\n  if (e >= 5) sig.push({ t: `Post con ${e} interacciones en LinkedIn`, d: `${p.likes} likes + ${p.comments} comentarios: https://www.linkedin.com/feed/update/${encodeURIComponent(p.urn)}. Quienes interactúan son leads cálidos.` }); });\nconst esc = s => String(s ?? '').replace(/'/g, \"''\");\nconst qStats = `INSERT INTO prod.linkedin_stats (org_id, followers, posts_count, engagement_total, stats_date) VALUES ('${esc(tok.org_id)}', ${followers}, ${posts.length}, ${eng}, CURRENT_DATE) ON CONFLICT (org_id, stats_date) DO UPDATE SET followers=EXCLUDED.followers, posts_count=EXCLUDED.posts_count, engagement_total=EXCLUDED.engagement_total;`;\nconst qWarm = sig.length ? `INSERT INTO prod.warm_signals (fuente, titulo, detalle) VALUES ` + sig.map(x => `('linkedin','${esc(x.t)}','${esc(x.d)}')`).join(',') + ';' : 'SELECT 1;';\nreturn [{ query_stats: qStats, query_warm: qWarm, n_signals: sig.length }];"
+      },
+      "id": "074b733a-ce84-4c83-bb68-0b2de5cd9001",
+      "name": "Detectar señales",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3740,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query_stats }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "0ab78d7c-c657-4f84-9ae6-06f630ae7c10",
+      "name": "Guardar stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        3960,
+        440
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Detectar señales').first().json.query_warm }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "ae9ab248-4c98-411b-9fdd-4405636b9b9f",
+      "name": "Guardar warm",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        4180,
+        440
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://api:8000/api/v1/pipelines/runs/{{ $('Registrar run (GEIS)').first().json.run_id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"estado\": \"ok\", \"detalle\": {\"origen\": \"n8n\", \"workflow\": \"05-linkedin-signals\"}}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "ccf43661-6bb3-4761-a029-d97d1b8e860a",
+      "name": "Callback Run OK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4400,
+        440
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Señales LinkedIn (requiere conectar tu página)\nAlcance honesto: la API de LinkedIn NO permite buscar prospectos ni extraer contactos.\nEste workflow monitorea TU página de empresa: seguidores, posts y engagement.\nCuando hay picos, genera warm_signals → el workflow 03 les suma +25.\nSetup: .env (LINKEDIN_CLIENT_ID/SECRET) → dashboard Config → LinkedIn → Conectar → pega tu org_id en Proveedores → linkedin → config.",
+        "height": 230,
+        "width": 380,
+        "color": 4
+      },
+      "id": "49e2aa80-8ec1-4a9b-aafe-289a577d8ea9",
+      "name": "Nota: alcance LinkedIn",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/pipelines/run/radar-05",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"origen\": \"n8n\"}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "74cf96e1-7f46-4ab4-913c-8507e8cb7aa9",
+      "name": "Registrar run (GEIS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "bba7eb3f-4745-48f0-9914-ad9f9f9905b4",
+              "leftValue": "={{ $json.run_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.string.notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "50c3d86b-c5a6-4f43-9e00-e51996ed3ce1",
+      "name": "¿Run registrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Manual": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lunes 8am": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook radar-05": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lote único": {
+      "main": [
+        [
+          {
+            "node": "Leer config linkedin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer config linkedin": {
+      "main": [
+        [
+          {
+            "node": "¿Activo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Activo?": {
+      "main": [
+        [
+          {
+            "node": "Checar token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fin (inactivo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checar token": {
+      "main": [
+        [
+          {
+            "node": "¿Token vigente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Token vigente?": {
+      "main": [
+        [
+          {
+            "node": "Stats previas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aviso token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aviso token": {
+      "main": [
+        [
+          {
+            "node": "Insertar aviso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar aviso": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fin (inactivo)": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stats previas": {
+      "main": [
+        [
+          {
+            "node": "Stats seguidores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stats seguidores": {
+      "main": [
+        [
+          {
+            "node": "Posts recientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posts recientes": {
+      "main": [
+        [
+          {
+            "node": "Top 5 URNs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top 5 URNs": {
+      "main": [
+        [
+          {
+            "node": "Likes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Likes": {
+      "main": [
+        [
+          {
+            "node": "Juntar likes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Juntar likes": {
+      "main": [
+        [
+          {
+            "node": "Comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comments": {
+      "main": [
+        [
+          {
+            "node": "Juntar todo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Juntar todo": {
+      "main": [
+        [
+          {
+            "node": "Detectar señales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detectar señales": {
+      "main": [
+        [
+          {
+            "node": "Guardar stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar stats": {
+      "main": [
+        [
+          {
+            "node": "Guardar warm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar warm": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar run (GEIS)": {
+      "main": [
+        [
+          {
+            "node": "¿Run registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Run registrado?": {
+      "main": [
+        [
+          {
+            "node": "Lote único",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "timezone": "America/Mexico_City"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

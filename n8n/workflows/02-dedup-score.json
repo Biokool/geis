@@ -1,0 +1,730 @@
+{"id":"-mWNKxcHiOJHNmjeKc-chN",
+  "name": "02 - Dedup y score",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "aa72ce9a-47f2-4256-9c9f-e6b829f64e12",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "radar-02",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "0fda4667-b22b-4940-b8c0-40b9295c2b39",
+      "name": "Webhook radar-02",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{}];"
+      },
+      "id": "ea5767c2-6af0-4899-9bea-66cc13800b2b",
+      "name": "Lote único",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO prod.leads (source, nombre, giro, direccion, geom, telefono, web, score, linea_recomendada, etapa)\nSELECT 'gmaps', nombre, giro, direccion, geom, telefono, web,\n  CASE WHEN web IS NOT NULL AND web <> '' THEN 15 ELSE 0 END +\n  CASE WHEN lower(giro) LIKE '%log%' OR lower(giro) LIKE '%plant%'\n         OR lower(giro) LIKE '%industr%' THEN 20 ELSE 0 END,\n  'evaporativa', 'nuevo'\nFROM stg.leads_raw\nWHERE procesado = false\n  AND NOT EXISTS (\n    SELECT 1 FROM prod.leads l\n    WHERE l.source = 'gmaps'\n      AND lower(l.nombre) = lower(stg.leads_raw.nombre)\n      AND lower(l.direccion) = lower(stg.leads_raw.direccion)\n  );",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "bf219249-233b-495d-83bb-ff5e2e09a300",
+      "name": "Insertar con dedup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1100,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT lead_id AS id, ST_Y(geom) AS lat, ST_X(geom) AS lng, giro, web FROM prod.leads\nWHERE temp_zona IS NULL AND geom IS NOT NULL\nORDER BY lead_id LIMIT 60;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "595c5a0b-6b60-457b-b5c9-8c717492ecd1",
+      "name": "Leads sin temperatura",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1320,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.open-meteo.com/v1/forecast",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "latitude",
+              "value": "={{ $json.lat }}"
+            },
+            {
+              "name": "longitude",
+              "value": "={{ $json.lng }}"
+            },
+            {
+              "name": "current",
+              "value": "temperature_2m"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          }
+        }
+      },
+      "id": "2018e295-c1aa-4330-89e9-2c3c24aaa4db",
+      "name": "Open-Meteo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        340
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Bonus por temperatura + línea recomendada por mes.\n// $('Leads sin temperatura').item empareja por índice con la respuesta HTTP.\nconst src = $('Leads sin temperatura').item.json;\nconst temp = ($json.current && $json.current.temperature_2m !== undefined)\n  ? $json.current.temperature_2m : null;\nconst giro = String(src.giro || '').toLowerCase();\nconst bonus = (temp !== null && temp > 30) ? 20 : 0;\nconst m = new Date().getMonth(); // 0=ene … 11=dic\nlet linea = 'evaporativa';\nif (m >= 1 && m <= 5) linea = 'koolkat';              // feb–jun: calor\nelse if (m >= 9 || m <= 1) {                          // oct–feb: temporada solar\n  linea = /gasolin|estacionamiento|comercial|plaza|tienda/.test(giro) ? 'solar' : 'evaporativa';\n}\nconst q = (s) => \"'\" + String(s).replace(/'/g, \"''\") + \"'\";\nreturn { json: { id: src.id, temp: temp === null ? 'NULL' : temp, bonus, linea: q(linea) } };\n"
+      },
+      "id": "7e64e7eb-74be-4b86-892c-4d42be35b4cb",
+      "name": "Score y línea",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE prod.leads\nSET temp_zona = {{ $json.temp }},\n    score = LEAST(score + {{ $json.bonus }}, 100),\n    linea_recomendada = {{ $json.linea }},\n    updated_at = now()\nWHERE lead_id = {{ $json.id }};",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "4b999bf2-3913-4c31-8b83-ddddfa19f872",
+      "name": "Actualizar lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1980,
+        340
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{}];"
+      },
+      "id": "4c2a79c3-6b71-4e3b-ad7a-9829f61ed0e1",
+      "name": "Consolidar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE stg.leads_raw SET procesado = true WHERE procesado = false;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "0fc5fb9e-4224-4d97-b34a-61eba701708d",
+      "name": "Marcar raw procesados",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        3740,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://api:8000/api/v1/pipelines/runs/{{ $('Registrar run (GEIS)').first().json.run_id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"estado\": \"ok\", \"detalle\": {\"origen\": \"n8n\", \"workflow\": \"02-dedup-score\"}}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "79d40d65-150b-4271-9082-7777ed8a09be",
+      "name": "Callback Run OK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3960,
+        340
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT mode, provider FROM prod.providers WHERE name='enrichment';",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "40c388be-0316-48e9-8f3d-d91035b72d62",
+      "name": "Leer provider enrichment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2200,
+        340
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "fc07219f-1d30-4b53-90e3-aa824d566abf",
+              "leftValue": "={{ $json.mode }}",
+              "rightValue": "cloud",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            },
+            {
+              "id": "bbbe6d13-9894-41a5-aa34-14a9844f17e2",
+              "leftValue": "={{ $json.provider }}",
+              "rightValue": "apollo",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "219a7a8f-14d9-4e5b-9970-336fbe002d2a",
+      "name": "¿Apollo activo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2420,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT lead_id AS id, web FROM prod.leads WHERE enriquecido_apollo = false AND web IS NOT NULL AND web <> '' ORDER BY score DESC LIMIT 20;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "e2be7b19-da45-4bb3-9c67-f98b174a389f",
+      "name": "Top 20 con web",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2640,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const w = String($json.web || '');\nconst d = w.replace(/^(https?:\\/\\/)?(www\\.)?/, '').split('/')[0].toLowerCase();\nreturn { json: { id: $json.id, domain: d, body: JSON.stringify({ domain: d }) } };"
+      },
+      "id": "4e68b1c7-eb9e-4eae-bc1a-a51097093d45",
+      "name": "Extraer dominio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/organizations/enrich",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 3000
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Csa4kQKj1XAeNIxEDuvHS",
+          "name": "Apollo API"
+        }
+      },
+      "id": "8955a8e6-bb5f-45f2-81f8-bd515f4d6b98",
+      "name": "Apollo org enrich",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3080,
+        140
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 20000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Empareja por índice con 'Extraer dominio'. 1 crédito Apollo por empresa.\nconst src = $('Extraer dominio').item.json;\nconst org = ($json.organization || $json || {});\nconst emp = org.estimated_num_employees || org.num_employees || null;\nconst bonus = emp >= 200 ? 15 : emp >= 50 ? 10 : 0;\n// empleados como literal SQL ('NULL' o entero) con tope smallint (prod.leads.empleados_est).\nconst nlit = (v) => (v === null || v === undefined || v === '') ? 'NULL' : Math.min(Math.trunc(Number(v) || 0), 32767);\nreturn { json: { id: src.id, empleados: nlit(emp), bonus } };"
+      },
+      "id": "df3b5772-545e-405d-a8c0-d2d67fabec9b",
+      "name": "Merge Apollo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        140
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE prod.leads SET empleados_est = COALESCE({{ $json.empleados }}, empleados_est), score = LEAST(score + {{ $json.bonus }}, 100), enriquecido_apollo = true, updated_at = now() WHERE lead_id = {{ $json.id }};",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "08d3f3be-56f3-4aaa-9a71-7102c29a7e92",
+      "name": "Guardar enrich",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        3520,
+        140
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Enriquecimiento Apollo (opcional)\nEsta rama SOLO corre si en el dashboard (Config → Proveedores) pones Enriquecimiento = nube/apollo.\nPlan gratuito Apollo: ~900-1,200 créditos/año (1 por empresa). Se enriquecen máx. 20 leads por corrida, ordenados por score.\nVerifica que tu plan gratuito tenga acceso a la API antes de activarlo; si la key es inválida, el nodo falla en 'continue' y el pipeline sigue sin enriquecer.",
+        "height": 200,
+        "width": 340,
+        "color": 4
+      },
+      "id": "bdfc4143-85e5-4683-ab3c-0b7a155c5329",
+      "name": "Nota: Apollo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2620,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/pipelines/run/radar-02",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"origen\": \"n8n\"}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "622ac3d5-6539-4160-aabc-d09a637455c9",
+      "name": "Registrar run (GEIS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c6c6d73a-82db-4130-a053-7fad98de2ecb",
+              "leftValue": "={{ $json.run_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.string.notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "4cdb2af4-a4cc-45dc-93b0-8d1a7007608d",
+      "name": "¿Run registrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "cronExpression": "0 30 6 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "6be41c5c-dda7-4e0f-8de3-829d6dd7b847",
+      "name": "Lunes 6:30am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        580
+      ]
+    }
+  ],
+  "connections": {
+    "Manual": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook radar-02": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lote único": {
+      "main": [
+        [
+          {
+            "node": "Insertar con dedup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar con dedup": {
+      "main": [
+        [
+          {
+            "node": "Leads sin temperatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leads sin temperatura": {
+      "main": [
+        [
+          {
+            "node": "Open-Meteo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open-Meteo": {
+      "main": [
+        [
+          {
+            "node": "Score y línea",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score y línea": {
+      "main": [
+        [
+          {
+            "node": "Actualizar lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar lead": {
+      "main": [
+        [
+          {
+            "node": "Leer provider enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar": {
+      "main": [
+        [
+          {
+            "node": "Marcar raw procesados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar raw procesados": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer provider enrichment": {
+      "main": [
+        [
+          {
+            "node": "¿Apollo activo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Apollo activo?": {
+      "main": [
+        [
+          {
+            "node": "Top 20 con web",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consolidar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top 20 con web": {
+      "main": [
+        [
+          {
+            "node": "Extraer dominio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer dominio": {
+      "main": [
+        [
+          {
+            "node": "Apollo org enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo org enrich": {
+      "main": [
+        [
+          {
+            "node": "Merge Apollo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Apollo": {
+      "main": [
+        [
+          {
+            "node": "Guardar enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar enrich": {
+      "main": [
+        [
+          {
+            "node": "Consolidar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar run (GEIS)": {
+      "main": [
+        [
+          {
+            "node": "¿Run registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Run registrado?": {
+      "main": [
+        [
+          {
+            "node": "Lote único",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Lunes 6:30am": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "timezone": "America/Mexico_City"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

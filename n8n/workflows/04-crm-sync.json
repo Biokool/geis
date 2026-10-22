@@ -1,0 +1,599 @@
+{"id":"e8sgc1N9MXp0TKwUG--20c",
+  "name": "04 - CRM sync espejo",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e5706355-8797-4552-a63f-fd4e3f995699",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "radar-04",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "27930a7d-2e2b-4e2c-b24c-0a53b572093c",
+      "name": "Webhook radar-04",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{}];"
+      },
+      "id": "755a8f9d-91d2-4526-8224-a076b8af6352",
+      "name": "Lote único",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT mode, provider FROM prod.providers WHERE name='crm';",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "dcb7809d-5048-448b-ac1d-d54cd3562c63",
+      "name": "Leer provider crm",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1100,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "5bec148f-71e4-4a62-8578-16a6f4f8dbb9",
+              "leftValue": "={{ $json.mode }}",
+              "rightValue": "cloud",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "e0b3e9ec-2135-44b3-bae9-780efe5069f6",
+      "name": "¿Nube activa?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ nota: 'CRM en modo local: Postgres + dashboard es la fuente de verdad. Nada que sincronizar.' }];"
+      },
+      "id": "026184b5-7c63-48b4-9081-49268fc7ef73",
+      "name": "Fin local",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT lead_id AS id, nombre, web, telefono, direccion, etapa, score, linea_recomendada FROM prod.leads WHERE crm_synced_at IS NULL OR updated_at > crm_synced_at ORDER BY score DESC LIMIT 100;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "2108fedc-98e1-4a26-9534-ec50f4a879db",
+      "name": "Leads para sync",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1540,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "e887e453-1994-4930-87d1-6045c2585454",
+              "leftValue": "={{ $('Leer provider crm').item.json.provider }}",
+              "rightValue": "hubspot",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "f87e06d0-d3cc-4353-a835-2a2d5037bf09",
+      "name": "¿HubSpot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const p = { name: $json.nombre, website: $json.web || '', phone: $json.telefono || '', address: $json.direccion || '', biokool_etapa: $json.etapa, biokool_score: String($json.score ?? ''), biokool_linea: $json.linea_recomendada || '' };\nreturn { json: { lead_id: $json.id, body: JSON.stringify({ properties: p }) } };"
+      },
+      "id": "c5247a5f-6423-43b9-8d25-cee880087b2d",
+      "name": "Preparar payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/companies",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "zCLQKot0q2XP84fVO1T9u",
+          "name": "HubSpot"
+        }
+      },
+      "id": "a6faf3e9-6a08-47ae-bd41-bc19dc376535",
+      "name": "HubSpot upsert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        340
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "0be9d783-2b7b-4066-b6d9-dd96529017af",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.string.notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "8fa60483-e50b-429c-98c0-c05bb461fc13",
+      "name": "¿OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2420,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Reconstruye los lead_ids exitosos vía pairedItem contra 'Preparar payload'.\nconst oks = $('¿OK?').all();\nconst prep = $('Preparar payload').all();\nconst ids = oks.map(o => {\n  const pi = o.pairedItem;\n  const idx = pi && pi.item !== undefined ? pi.item : null;\n  return (idx !== null && prep[idx]) ? prep[idx].json.lead_id : null;\n}).filter(v => v !== null && v !== undefined);\nif (!ids.length) return [{ query: 'SELECT 1' }];\nreturn [{ query: 'UPDATE prod.leads SET crm_synced_at = now() WHERE lead_id IN (' + ids.map(Number).join(',') + ')' }];"
+      },
+      "id": "421fe59b-0613-4491-933e-3dc1e86014d5",
+      "name": "Marcar sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "fe8d4cbc-9590-49b4-b07f-62eb484c6533",
+      "name": "Ejecutar marcaje",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2860,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ nota: 'Twenty CRM: conector pendiente de implementar. Ver docs/ARQUITECTURA.md (fase 2). Postgres sigue siendo la fuente de verdad.' }];"
+      },
+      "id": "ec88188f-3ff5-477a-bec6-5f16f29b6314",
+      "name": "Twenty stub",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://api:8000/api/v1/pipelines/runs/{{ $('Registrar run (GEIS)').first().json.run_id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"estado\": \"ok\", \"detalle\": {\"origen\": \"n8n\", \"workflow\": \"04-crm-sync\"}}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "754fa41a-f1fa-4cfe-ba7a-64233607ebe2",
+      "name": "Callback Run OK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3080,
+        340
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## CRM espejo (apagado en v1)\nSe activa en el dashboard (Config → Proveedores): crm = nube/hubspot.\nHubSpot gratis: 1,000 contactos, 2 usuarios, 1 pipeline. Crea UNA vez las 3 propiedades personalizadas de empresa: biokool_etapa, biokool_score, biokool_linea.\nCredencial 'HubSpot' (Header Auth): Name=Authorization, Value=Bearer <tu private app token>.\nPostgres SIEMPRE es la fuente de verdad; HubSpot/Twenty son espejos de visualización.",
+        "height": 220,
+        "width": 360,
+        "color": 5
+      },
+      "id": "0c84c41a-f06e-43f4-ba00-9763f1751ef6",
+      "name": "Nota: CRM espejo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/pipelines/run/radar-04",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"origen\": \"n8n\"}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "51df1d82-ee3e-4b0b-a1ab-07f77131623d",
+      "name": "Registrar run (GEIS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "aeacdfc4-c7d4-45b7-8873-140f4369c118",
+              "leftValue": "={{ $json.run_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.string.notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "efc2ee7d-a26d-4a27-a777-cf1a369d6b98",
+      "name": "¿Run registrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        340
+      ]
+    }
+  ],
+  "connections": {
+    "Manual": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook radar-04": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lote único": {
+      "main": [
+        [
+          {
+            "node": "Leer provider crm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer provider crm": {
+      "main": [
+        [
+          {
+            "node": "¿Nube activa?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Nube activa?": {
+      "main": [
+        [
+          {
+            "node": "Leads para sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fin local",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leads para sync": {
+      "main": [
+        [
+          {
+            "node": "¿HubSpot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿HubSpot?": {
+      "main": [
+        [
+          {
+            "node": "Preparar payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Twenty stub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar payload": {
+      "main": [
+        [
+          {
+            "node": "HubSpot upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot upsert": {
+      "main": [
+        [
+          {
+            "node": "¿OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿OK?": {
+      "main": [
+        [
+          {
+            "node": "Marcar sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar sync": {
+      "main": [
+        [
+          {
+            "node": "Ejecutar marcaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ejecutar marcaje": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fin local": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twenty stub": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar run (GEIS)": {
+      "main": [
+        [
+          {
+            "node": "¿Run registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Run registrado?": {
+      "main": [
+        [
+          {
+            "node": "Lote único",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "timezone": "America/Mexico_City"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

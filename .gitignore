@@ -1,0 +1,14 @@
+# GEIS · .gitignore — nunca commitear secretos ni artefactos locales
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+pgdata/
+
+# Backups de base de datos (pueden contener datos reales)
+backup_*.sql
+
+# Datos en runtime del módulo Radar (señales del SDR; usar input.example.json)
+signals/input.json

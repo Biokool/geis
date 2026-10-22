@@ -1,0 +1,317 @@
+{"id":"czWM4gT_GzKyWunKE36WpU",
+  "name": "01 - Radar scrape",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "9f4e485d-cb46-43a0-8970-c092f78aa243",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "cronExpression": "0 6 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "de5289d2-668b-4988-91c2-25c491f0ff77",
+      "name": "Lunes 6am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "radar-01",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "52fde1c9-bff5-4e58-84c3-a95448cb1fdc",
+      "name": "Webhook radar-01",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// 3 queries x 2 corredores = 6 llamadas al scraper.\nconst queries = ['bodegas', 'centros logísticos', 'plantas industriales'];\nconst locations = ['Toluca, Estado de México', 'Querétaro, Querétaro'];\nconst items = [];\nfor (const q of queries)\n  for (const loc of locations)\n    items.push({ query: q, location: loc, max_results: 40 });\nreturn items;\n"
+      },
+      "id": "da895b22-43b7-47d6-823f-f822d27b1b13",
+      "name": "Armar búsquedas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://scraper:5000/scrape",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "timeout": 900000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 3000
+            }
+          }
+        }
+      },
+      "id": "226cced7-0c59-4964-823a-15700f919890",
+      "name": "Scrapear Maps",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        420
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 15000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Aplana la respuesta del scraper. Las cadenas salen entrecomilladas (q)\n// y los números/NULL como literales SQL (n) para el INSERT directo.\n// Dedup dentro del lote por nombre+dirección.\nconst q = (s) => \"'\" + String(s ?? '').replace(/'/g, \"''\") + \"'\";\nconst n = (v) => (v === null || v === undefined || v === '') ? 'NULL' : v;\nconst vistos = new Set();\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  for (const r of (j.results || [])) {\n    if (!r.nombre) continue;\n    const key = (r.nombre + '|' + (r.direccion || '')).toLowerCase();\n    if (vistos.has(key)) continue;\n    vistos.add(key);\n    out.push({\n      nombre: q(r.nombre), giro: q(j.query), direccion: q(r.direccion),\n      lat: n(r.lat), lng: n(r.lng), telefono: q(r.telefono),\n      web: q(r.web), rating: n(r.rating),\n      fuente: q(j.backend === 'demo' ? 'demo' : 'google_maps'),\n      query: q((j.query || '') + ' ' + (j.location || '')),\n    });\n  }\n}\n// Corrida vacía: si no salió NADA (Google bloqueado / 0 resultados / timeouts)\n// hay que emitir un item marcador igual, o \"Guardar en raw\" y el callback no\n// se ejecutan y la corrida queda en 'running' para siempre en el dashboard.\n// fila=1 -> se inserta; fila=0 -> la sentencia no inserta ninguna fila.\nif (!out.length) {\n  return [{\n    fila: 0, nombre: 'NULL', giro: 'NULL', direccion: 'NULL', lat: 'NULL',\n    lng: 'NULL', telefono: 'NULL', web: 'NULL', rating: 'NULL',\n    fuente: 'NULL', query: \"''\",\n  }];\n}\nreturn out.map((r) => Object.assign({ fila: 1 }, r));\n"
+      },
+      "id": "7385bc79-a9e5-4fea-8976-c7a3aa26638a",
+      "name": "Normalizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO stg.leads_raw (nombre, giro, direccion, geom, telefono, web, rating, fuente, query)\nSELECT {{ $json.nombre }}, {{ $json.giro }}, {{ $json.direccion }}, CASE WHEN {{ $json.lat }} IS NULL OR {{ $json.lng }} IS NULL THEN NULL ELSE ST_SetSRID(ST_MakePoint({{ $json.lng }}, {{ $json.lat }}), 4326) END, {{ $json.telefono }}, {{ $json.web }}, {{ $json.rating }}, {{ $json.fuente }}, {{ $json.query }}\nWHERE {{ $json.fila }} = 1;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "T1a4HFyvCJOItLYP9N87U",
+          "name": "Postgres GEIS"
+        }
+      },
+      "id": "fd9e1f09-29d1-4278-8783-2700bc589d31",
+      "name": "Guardar en raw",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1540,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=http://api:8000/api/v1/pipelines/runs/{{ $('Registrar run (GEIS)').first().json.run_id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"estado\": \"ok\", \"detalle\": {\"origen\": \"n8n\", \"workflow\": \"01-radar-scrape\"}}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "0d23ab0a-5609-47fa-ab7c-a4614162a7b3",
+      "name": "Callback Run OK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/pipelines/run/radar-01",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"origen\": \"n8n\"}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "8f3c7ae0-16c0-445b-9b47-bb708b28351e",
+      "name": "Registrar run (GEIS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "4a6946f1-26b7-431e-bab7-ec8001b17f8b",
+              "leftValue": "={{ $json.run_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.string.notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "063944e1-c79b-4da4-a180-d1d52083a90b",
+      "name": "¿Run registrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Manual": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lunes 6am": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook radar-01": {
+      "main": [
+        [
+          {
+            "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar búsquedas": {
+      "main": [
+        [
+          {
+            "node": "Scrapear Maps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrapear Maps": {
+      "main": [
+        [
+          {
+            "node": "Normalizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar": {
+      "main": [
+        [
+          {
+            "node": "Guardar en raw",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar en raw": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar run (GEIS)": {
+      "main": [
+        [
+          {
+            "node": "¿Run registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Run registrado?": {
+      "main": [
+        [
+          {
+            "node": "Armar búsquedas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "timezone": "America/Mexico_City"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
