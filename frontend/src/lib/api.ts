@@ -378,3 +378,133 @@ export function postAiChat(message: string, history: AiChatMessage[]) {
 export function postAiFillProfile(payload: { url?: string; text?: string; filename?: string }) {
   return post<AiFillResult>('/ai/fill-profile', payload);
 }
+
+/* ---------- Corrección profunda: conteo, comparación y borrado ---------- */
+
+/** Total real de leads curadas Radar (prod.leads). */
+export function getLeadsCount(params?: { etapa?: string; linea?: string; source?: string }) {
+  return get<{ total: number }>('/leads/count', params ?? {});
+}
+
+export interface CompareItem {
+  id: string;
+  nombre?: string;
+  territorio?: string;
+  veredicto?: string;
+  ism?: number | null;
+  tam?: number | null;
+  competencia?: number | null;
+  poblacion?: number | null;
+  huff_score?: number | null;
+  [k: string]: unknown;
+}
+
+export interface CompareResponse {
+  items: CompareItem[];
+  lineage?: Lineage | Record<string, unknown> | null;
+}
+
+export function compareInvestigations(ids: string[]) {
+  return post<CompareResponse>('/analysis/compare', { investigation_ids: ids });
+}
+
+export function deleteInvestigation(id: string) {
+  return del<void>('/investigations/' + id);
+}
+
+/* ---------- Adaptador de leads unificados (tarea E) ---------- */
+
+export interface LeadUnificado {
+  origen: 'espacial' | 'radar';
+  clave: string;
+  nombre: string;
+  giro?: string;
+  linea?: string;
+  etapa?: string;
+  score?: number;
+  desglose: Record<string, unknown>;
+  telefono?: string;
+  correo?: string;
+  web?: string;
+  direccion?: string;
+  municipio?: string;
+  lat?: number;
+  lon?: number;
+  temp_zona?: number;
+  notas?: string;
+  enriquecido_apollo?: boolean;
+  crm_synced_at?: string | null;
+  lead_id?: number;
+  denue_id?: string;
+  estrato?: string;
+  idt?: number;
+  source?: string;
+  rating?: number;
+  // datos crudos para la ficha
+  crudoEspacial?: Lead;
+  crudoRadar?: LeadCurado;
+}
+
+export function desdeEspacial(l: Lead): LeadUnificado {
+  const denueId = l.denue_id ?? l.id ?? '';
+  const desglose: Record<string, unknown> = l.score_breakdown ? { ...l.score_breakdown } : {};
+  return {
+    origen: 'espacial',
+    clave: `espacial-${denueId || (l.razon_social ?? l.nombre ?? Math.random().toString(36))}`,
+    nombre: l.razon_social ?? l.nombre ?? 'Establecimiento',
+    giro: l.scian_desc,
+    linea: undefined,
+    etapa: undefined,
+    score: l.score,
+    desglose,
+    telefono: l.telefono,
+    correo: l.correo,
+    web: l.sitio_web,
+    direccion: l.direccion,
+    municipio: l.municipio,
+    lat: l.lat,
+    lon: l.lon,
+    temp_zona: undefined,
+    notas: undefined,
+    enriquecido_apollo: undefined,
+    crm_synced_at: undefined,
+    lead_id: undefined,
+    denue_id: denueId || undefined,
+    estrato: l.estrato,
+    idt: l.idt,
+    source: undefined,
+    crudoEspacial: l,
+  };
+}
+
+export function desdeRadar(l: LeadCurado): LeadUnificado {
+  const desglose: Record<string, unknown> = l.score_components ? { ...l.score_components } : {};
+  return {
+    origen: 'radar',
+    clave: `radar-${l.lead_id}`,
+    nombre: l.nombre,
+    giro: l.giro,
+    linea: l.linea_recomendada,
+    etapa: l.etapa,
+    score: l.score,
+    desglose,
+    telefono: l.telefono,
+    correo: undefined,
+    web: l.web,
+    direccion: l.direccion,
+    municipio: undefined,
+    lat: l.lat,
+    lon: l.lon,
+    temp_zona: l.temp_zona,
+    notas: l.notas,
+    enriquecido_apollo: l.enriquecido_apollo,
+    crm_synced_at: l.crm_synced_at,
+    lead_id: l.lead_id,
+    denue_id: undefined,
+    estrato: undefined,
+    idt: undefined,
+    source: l.source,
+    rating: l.rating,
+    crudoRadar: l,
+  };
+}

@@ -54,6 +54,12 @@ class LeadsCuradosPage(BaseModel):
     limit: int
 
 
+class LeadCountOut(BaseModel):
+    """Conteo total de leads curadas (prod.leads)."""
+
+    total: int
+
+
 # ---------------------------------------------------------------- pipelines
 class RunCreate(BaseModel):
     detalle: dict | None = None

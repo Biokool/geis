@@ -12,7 +12,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Separator } from '@/components/ui/Separator';
 import { CodeBlock } from '@/components/ui/CodeBlock';
 import { EstimadoBadge } from '@/components/ui/Estimado';
-import { post, get, errorMessage } from '@/lib/api';
+import { post, get, errorMessage, type Investigation } from '@/lib/api';
+import { useSearchParams } from 'react-router-dom';
 import { verdictColor } from '@/lib/geo';
 import { toast } from 'sonner';
 
@@ -66,6 +67,33 @@ export default function Reporte() {
   const [crudo, setCrudo] = React.useState(false);
   const [tempZona, setTempZona] = React.useState<number | null>(null);
   const [geoNota, setGeoNota] = React.useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const [precargaNota, setPrecargaNota] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const id = searchParams.get('id');
+    if (!id) return;
+    let vivo = true;
+    get<Investigation>(`/investigations/${id}`)
+      .then((inv) => {
+        if (!vivo) return;
+        const params = (inv.params ?? {}) as Record<string, unknown>;
+        const giroPrecargado = (typeof params.giro === 'string' ? params.giro : undefined) ?? inv.vertical ?? '';
+        if (giroPrecargado) setGiro(String(giroPrecargado));
+        if (inv.center_lat != null) setLat(String(inv.center_lat));
+        if (inv.center_lon != null) setLon(String(inv.center_lon));
+        if (inv.center_lat != null) setModo('coords');
+        setPrecargaNota(`Formulario precargado desde la investigación «${inv.title ?? id}». Solo pulsa «Generar reporte».`);
+        toast.success('Investigación precargada', { description: inv.title ?? id });
+      })
+      .catch((e) => {
+        if (!vivo) return;
+        toast.error('No se encontró la investigación', { description: errorMessage(e) });
+        setPrecargaNota('No se encontró la investigación indicada en la URL; completa el formulario normalmente.');
+      });
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const generar = async () => {
     setCargando(true);
@@ -127,6 +155,7 @@ export default function Reporte() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {precargaNota && <Alert variant="info"><AlertDescription>{precargaNota}</AlertDescription></Alert>}
               <Field label="Giro / actividad" htmlFor="giro" required>
                 <Input id="giro" placeholder="Ej. Cafetería" value={giro} onChange={(e) => setGiro(e.target.value)} />
               </Field>

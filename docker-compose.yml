@@ -76,6 +76,8 @@ services:
       # Desarrollo: el código del backend se monta en vivo sobre /code,
       # así no hay que reconstruir la imagen en cada cambio.
       - ./backend:/code
+      # Docs (PERFIL-EMPRESA*) para los tests de company/profile dentro del contenedor.
+      - ./docs:/docs:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 15s

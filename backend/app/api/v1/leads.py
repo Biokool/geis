@@ -20,7 +20,7 @@ from app.api.v1._common import lineage
 from app.api.v1.analysis import CLIMA_DEFAULT, _intensidad_scian
 from app.db.session import get_db
 from app.schemas.leads import LeadOut, LeadsPage
-from app.schemas.radar import Etapa, LeadUpdate, LeadsCuradosPage
+from app.schemas.radar import Etapa, LeadCountOut, LeadUpdate, LeadsCuradosPage
 from app.schemas.radar import LeadOut as LeadCuradoOut
 
 router = APIRouter(prefix="/leads", tags=["leads"])
@@ -216,6 +216,39 @@ def _decode_curado_cursor(cursor: str | None) -> int | None:
         return int(valor) if valor is not None else None
     except Exception:
         return None
+
+
+@router.get("/count", response_model=LeadCountOut)
+def contar_leads_curados(
+    etapa: Etapa | None = Query(default=None, description="Filtra por etapa comercial"),
+    linea: str | None = Query(default=None, description="Filtra por linea_recomendada"),
+    source: str | None = Query(default=None, description="Filtra por origen"),
+    db: Session = Depends(get_db),
+):
+    """Conteo total de leads curadas (prod.leads), sin paginación.
+
+    Es el total del badge del menú y del KPI de Inicio. Acepta los mismos
+    filtros que ``GET /leads/curados`` (etapa, linea, source), con WHERE
+    dinámico parametrizado.
+    """
+    filtros: list[str] = []
+    params: dict = {}
+    if etapa:
+        filtros.append("etapa = :etapa")
+        params["etapa"] = etapa
+    if linea:
+        filtros.append("linea_recomendada = :linea")
+        params["linea"] = linea
+    if source:
+        filtros.append("source = :source")
+        params["source"] = source
+
+    where = f"WHERE {' AND '.join(filtros)}" if filtros else ""
+    total = db.execute(
+        text(f"SELECT COUNT(*) FROM prod.leads {where}"),
+        params,
+    ).scalar()
+    return LeadCountOut(total=int(total or 0))
 
 
 @router.get("/curados", response_model=LeadsCuradosPage)

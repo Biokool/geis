@@ -8,8 +8,9 @@ import { Empty } from '@/components/ui/Empty';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
-import { get, post, errorMessage, type Investigation } from '@/lib/api';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/AlertDialog';
+import { get, post, deleteInvestigation, errorMessage, type Investigation } from '@/lib/api';
 import { verdictColor } from '@/lib/geo';
 import { toast } from 'sonner';
 
@@ -19,6 +20,9 @@ export default function Historial() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [procesando, setProcesando] = React.useState<string | null>(null);
+  const [compararSel, setCompararSel] = React.useState<string[]>(() => { try { const r = localStorage.getItem('geis:comparar'); return r ? (JSON.parse(r) as string[]) : []; } catch { return []; } });
+  const [borrarId, setBorrarId] = React.useState<string | null>(null);
+  const [borrando, setBorrando] = React.useState(false);
 
   const cargar = React.useCallback(() => {
     setLoading(true);
@@ -55,10 +59,46 @@ export default function Historial() {
     }
   };
 
+  const toggleComparar = (id: string, checked: boolean) => {
+    setCompararSel((prev) => {
+      let next: string[];
+      if (checked) {
+        if (prev.length >= 5) { toast.warning('Máximo 5 para comparar', { description: 'Ya tienes 5 seleccionadas; desmarca una.' }); return prev; }
+        next = [...prev, id];
+      } else {
+        next = prev.filter((x) => x !== id);
+      }
+      try { localStorage.setItem('geis:comparar', JSON.stringify(next)); } catch { /* sin persistencia */ }
+      return next;
+    });
+  };
+
+  const confirmarBorrado = async () => {
+    if (!borrarId) return;
+    setBorrando(true);
+    try {
+      await deleteInvestigation(borrarId);
+      toast.success('Investigación eliminada');
+      setCompararSel((prev) => { const n = prev.filter((x) => x !== borrarId); try { localStorage.setItem('geis:comparar', JSON.stringify(n)); } catch { /* noop */ } return n; });
+      setBorrarId(null);
+      cargar();
+    } catch (e) {
+      toast.error('No se pudo eliminar', { description: errorMessage(e) });
+    } finally { setBorrando(false); }
+  };
+
   return (
     <div className="flex h-full flex-col">
       <Topbar titulo="Historial de investigaciones" subtitulo="Cronología con veredicto, edición de datos y re-ejecución" />
       <div className="flex-1 overflow-y-auto p-6">
+        {items.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Button size="sm" disabled={compararSel.length < 2} onClick={() => navigate('/comparador')}>
+              Comparar selección ({compararSel.length})
+            </Button>
+            <span className="text-xs text-muted-foreground">Marca «Comparar» en hasta 5 tarjetas. La selección se guarda en este navegador.</span>
+          </div>
+        )}
         {error && (
           <Alert variant="destructive" className="mb-4">
             <AlertTitle>Error</AlertTitle>
@@ -118,20 +158,15 @@ export default function Historial() {
                         {procesando === id && <Spinner size={14} />}
                         Re-ejecutar
                       </Button>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="inline-flex cursor-not-allowed">
-                              <Button size="sm" variant="ghost" className="text-destructive" disabled aria-disabled="true">
-                                Eliminar
-                              </Button>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs">
-                            Fase 2: el backend aún no expone el borrado de investigaciones.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      <Button size="sm" variant="outline" onClick={() => navigate(`/mapa?inv=${id}`)}>Ver en mapa</Button>
+                      <Button size="sm" variant="outline" onClick={() => navigate(`/reporte?id=${id}`)}>Reporte</Button>
+                      <label className="flex cursor-pointer items-center gap-2 text-xs">
+                        <Checkbox checked={compararSel.includes(id)} onCheckedChange={(c) => toggleComparar(id, c === true)} />
+                        Comparar
+                      </label>
+                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setBorrarId(id)}>
+                        Borrar
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -140,6 +175,20 @@ export default function Historial() {
           </div>
         )}
       </div>
+      <AlertDialog open={!!borrarId} onOpenChange={(o) => { if (!o) setBorrarId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta investigación?</AlertDialogTitle>
+            <AlertDialogDescription>Esta acción borra la investigación del servidor y no se puede deshacer.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={borrando}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmarBorrado(); }} disabled={borrando} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {borrando ? 'Eliminando…' : 'Eliminar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

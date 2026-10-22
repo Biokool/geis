@@ -4,13 +4,13 @@
 
 ## Objetivo activo
 
-Módulo Radar **operativo y verificado E2E**. Documentación PKM completada. **Repositorio git fundado (solo local).** Siguiente: verificación visual del usuario y decisión sobre remoto.
+Módulo Radar **operativo y verificado E2E**; **producto unificado** (Revisión Profunda, 2026-10-21 tarde) publicado en **github.com/Biokool/geis** (público). Siguiente: verificación visual del usuario del nuevo producto.
 
 ## Entorno
 
 - Windows (PowerShell 5.1) · Docker Engine 29.7.2 · Compose v5.4.0 · Git 2.43.0.windows.1
 - PostGIS `16-3.5` · n8n `2.35.7` (puerto 5678) · 7 servicios saludables
-- Git identity: GERAS / chino.mauries@gmail.com · **Sin remoto configurado**
+- Git identity: GERAS / chino.mauries@gmail.com · Remoto: https://github.com/Biokool/geis (**público**)
 
 ## Reglas inviolables
 
@@ -33,9 +33,9 @@ Módulo Radar **operativo y verificado E2E**. Documentación PKM completada. **R
 
 ## En progreso / pendiente inmediato
 
-1. **Verificación visual del usuario** del dashboard tras hard refresh (Ctrl+F5) — único chequeo abierto.
-2. **Remoto git** — el repo es local-only; el owner decide (GitHub privado sugerido).
-3. Backlog P1: alerta expiración token LinkedIn, endpoint de conteo (dashboard itera cursores), `make radar`.
+1. **Revisión profunda integrada y publicada** (2026-10-21 tarde): producto unificado + 3 endpoints (`GET /leads/count`, `POST /analysis/compare`, `DELETE /investigations/{id}`); deploy local = `docker compose restart api` + rebuild `web`.
+2. **Verificación visual del usuario** tras hard refresh (Ctrl+F5): Inicio (centro de mando), Leads unificado, Mapa con capas/leyenda, Comparador real, Historial con borrar.
+3. Backlog P1 restante: alerta expiración token LinkedIn, `make radar`, documentar payload de propiedades HubSpot.
 
 ## Comandos de arranque rápido
 

@@ -2,6 +2,27 @@
 
 > Registro cronológico del trabajo real sobre el repositorio. Reconstruido el 2026-10-21 desde la bitácora de las sesiones de integración (previo a la adopción de git). Formato: fecha + categorías.
 
+## [2026-10-21 (tarde)] — Revisión profunda: producto unificado
+
+> Encargo del owner (diagnóstico completo en `REVISION-PROFUNDA.md`): la fusión GEIS×Radar no contaba una historia ni mostraba un proceso; corrección orientada a **producto** ejecutada por asistente externo y verificada al integrar.
+
+### Added
+- **Backend — 3 endpoints nuevos:** `GET /leads/count` (total real de `prod.leads` con filtros etapa/línea/source; reemplaza el conteo por cursor 5×100), `POST /analysis/compare` (2–5 investigaciones: veredicto, ISM, TAM, competencia, población, Huff reutilizando `compute_location_analysis`), `DELETE /investigations/{id}` (204, físico con cascade). Esquemas `LeadCountOut`, `CompareRequest/Item/Response`.
+- **Navegación en 5 grupos** (Inicio · 1 Inteligencia · 2 Prospección · 3 Operación · 4 Sistema) con **badge de total de leads** en el menú.
+- **Inicio = centro de mando:** checklist «Primeros pasos» con estado real (perfil → datos → investigación → leads → corrida) + KPIs + actividad reciente.
+- **Leads unificados:** adaptador `LeadUnificado` (`desdeEspacial`/`desdeRadar`) — UNA tabla con columna/filtro de origen (Espacial/Radar), contador real y ficha drawer.
+- **Mapa:** panel de capas conmutables con conteos, leyenda visible y acciones desde el popup.
+- **Comparador real** (tabla de métricas con celda verde por fila y «elegir ganadora») e **Historial** con reabrir en Mapa / ver Reporte / comparar / borrar.
+- `backend/tests/test_correccion_profunda.py` (3 endpoints nuevos con fakes; sin red ni Postgres).
+- Docs: `GUIA-DE-INICIO.md` (proceso de 5 momentos), `REVISION-PROFUNDA.md` (diagnóstico + diseño rector), enlace en README.
+
+### Changed
+- `Reporte.tsx` polish y estados vacíos guiados con enlaces cruzados en Operación/Geofencing/Exportación/KPIs; README actualizado (Fase 2 sin `DELETE`, portada = centro de mando).
+
+### Verified
+- Contrato frontend↔backend alineado: `/leads/count`, `/analysis/compare`, `DELETE /investigations/{id}` (`api.ts` ↔ routers ↔ `test_correccion_profunda.py`).
+- Escaneo de secretos del nuevo contenido: limpio (ningún valor real del `.env` presente).
+
 ## [2026-10-21] — Verificación E2E, fixes de integración, frontend autorizado, PKM + git
 
 ### Fixed

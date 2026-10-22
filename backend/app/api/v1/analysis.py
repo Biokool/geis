@@ -28,10 +28,14 @@ from app.analytics import (
 from app.api.v1._common import lineage
 from app.db.session import get_db
 from app.reports.builder import decidir_veredicto
+from app.models.investigations import UserInvestigation
 from app.schemas.analysis import (
     B2BLeadResult,
     B2BRequest,
     B2BResponse,
+    CompareItem,
+    CompareRequest,
+    CompareResponse,
     LocationAnalysisRequest,
     LocationAnalysisResponse,
     LookalikeItem,
@@ -205,6 +209,59 @@ def location_analysis(body: LocationAnalysisRequest, db: Session = Depends(get_d
         veredicto=r["veredicto"], factores=r["factores"],
         advertencias=r["advertencias"], lineage=lineage(db),
     )
+
+
+@router.post("/compare", response_model=CompareResponse)
+def comparar_investigaciones(body: CompareRequest, db: Session = Depends(get_db)):
+    """Compara de 2 a 5 investigaciones recalculando su análisis de ubicación.
+
+    Por cada investigación se reutiliza ``compute_location_analysis`` con el
+    giro/SCIAN guardados en ``params`` y los radios guardados en ``radii_m``
+    (o [1000, 2000] si no hay). El resumen de cada item toma ISM, competencia
+    y población del anillo de mayor radio.
+    """
+    items: list[CompareItem] = []
+    for investigation_id in body.investigation_ids:
+        inv = db.get(UserInvestigation, investigation_id)
+        if inv is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Investigación {investigation_id} no encontrada",
+            )
+        if inv.center_lat is None or inv.center_lon is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"La investigación {investigation_id} "
+                    f"('{getattr(inv, 'title', '')}') no tiene centro "
+                    "(center_lat/center_lon) para comparar"
+                ),
+            )
+        params = inv.params or {}
+        resultado = compute_location_analysis(
+            db,
+            giro=params.get("giro"),
+            scian=params.get("scian"),
+            lat=float(inv.center_lat),
+            lon=float(inv.center_lon),
+            radios=list(inv.radii_m) if inv.radii_m else [1000, 2000],
+        )
+        anillos = resultado.get("anillos") or []
+        anillo_mayor = anillos[-1] if anillos else {}
+        items.append(CompareItem(
+            id=str(getattr(inv, "investigation_id", investigation_id)),
+            nombre=inv.title,
+            territorio=inv.territory_kind,
+            center_lat=float(inv.center_lat),
+            center_lon=float(inv.center_lon),
+            veredicto=resultado["veredicto"],
+            ism=float(anillo_mayor.get("ism", 0.0)),
+            competencia=int(anillo_mayor.get("competencia", 0)),
+            poblacion=float(anillo_mayor.get("demanda_pob_30_59", 0.0)),
+            tam=float(resultado["tam_mxn"]),
+            huff_score=float(resultado["huff"]["cuota_punto"]),
+        ))
+    return CompareResponse(items=items, lineage=lineage(db))
 
 
 # ------------------------------------------------------------------ B2B ----

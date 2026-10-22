@@ -7,10 +7,11 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Empty } from '@/components/ui/Empty';
+import { Progress } from '@/components/ui/Progress';
 import { Chart } from '@/components/ui/Chart';
 import {
-  get, errorMessage, getCompanyProfile, ApiError,
-  type SystemHealth, type CompanyProfile, type Lead, type LeadCurado, type PipelineRun,
+  get, errorMessage, getCompanyProfile, getLeadsCount, ApiError,
+  type SystemHealth, type CompanyProfile, type Lead, type LeadCurado, type PipelineRun, type Investigation,
   ETAPAS_RADAR, lineaColor,
 } from '@/lib/api';
 import { useGeisStore } from '@/store';
@@ -77,6 +78,9 @@ export default function Inicio() {
   const [sinPerfil, setSinPerfil] = React.useState(false);
   const [cargandoPerfil, setCargandoPerfil] = React.useState(true);
 
+  const [leadsTotalReal, setLeadsTotalReal] = React.useState<number | null>(null);
+  const [invCount, setInvCount] = React.useState(0);
+  const [hasEstablecimientos, setHasEstablecimientos] = React.useState(false);
   const [curados, setCurados] = React.useState<LeadCurado[]>([]);
   const [denue, setDenue] = React.useState<Lead[]>([]);
   const [runs, setRuns] = React.useState<PipelineRun[]>([]);
@@ -96,22 +100,26 @@ export default function Inicio() {
     setDashLoading(true);
     setDashError(null);
     (async () => {
-      const out: LeadCurado[] = [];
-      let cursor: string | undefined;
-      for (let pagina = 0; pagina < 10; pagina++) {
-        const r = await get<{ items?: LeadCurado[]; next_cursor?: string | null } | LeadCurado[]>(
-          '/leads/curados',
-          { limit: 100, cursor },
-        );
-        const items = Array.isArray(r) ? r : (r.items ?? []);
-        out.push(...items);
-        const siguiente = Array.isArray(r) ? null : (r.next_cursor ?? null);
-        if (!siguiente || items.length === 0) break;
-        cursor = siguiente;
-      }
-      setCurados(out);
+      // Total real desde /leads/count (ya no se pagina para contar)
+      try {
+        const c = await getLeadsCount();
+        setLeadsTotalReal(c.total);
+      } catch { setLeadsTotalReal(null); }
+      // Una sola página para los charts
+      const r = await get<{ items?: LeadCurado[]; next_cursor?: string | null } | LeadCurado[]>('/leads/curados', { limit: 100 });
+      const items = Array.isArray(r) ? r : (r.items ?? []);
+      setCurados(items);
       const dl = await get<{ items?: Lead[]; data?: Lead[] } | Lead[]>('/leads', { limit: 100 });
-      setDenue(Array.isArray(dl) ? dl : (dl.items ?? dl.data ?? []));
+      const denueArr = Array.isArray(dl) ? dl : (dl.items ?? dl.data ?? []);
+      setDenue(denueArr);
+      setHasEstablecimientos(denueArr.length > 0);
+      // Investigaciones (para checklist)
+      try {
+        const inv = await get<{ items?: Investigation[]; data?: Investigation[] } | Investigation[]>('/investigations', { limit: 1 });
+        const arrInv = Array.isArray(inv) ? inv : (inv.items ?? inv.data ?? []);
+        // limit 1 solo dice si hay al menos 1; para conteo breve pedimos sin limit si vino 1
+        setInvCount(arrInv.length);
+      } catch { setInvCount(0); }
       const rs = await get<{ items?: PipelineRun[] } | PipelineRun[]>('/pipelines/runs', { limit: 200 });
       setRuns(Array.isArray(rs) ? rs : (rs.items ?? []));
     })()
@@ -137,7 +145,8 @@ export default function Inicio() {
     const scores = curados.map((l) => l.score ?? 0).filter((v) => v > 0);
     const scoreProm = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     return {
-      total: curados.length,
+      total: leadsTotalReal ?? curados.length,
+      totalCargados: curados.length,
       nuevos: porEtapa('nuevo'),
       enPipeline: porEtapa('contactado') + porEtapa('reunion') + porEtapa('propuesta'),
       ganados: porEtapa('ganado'),
@@ -156,43 +165,127 @@ export default function Inicio() {
       runsError: runs.filter((r) => r.estado === 'error').length,
       ultima: runs[0],
     };
-  }, [curados, denue, runs]);
+  }, [curados, denue, runs, leadsTotalReal]);
+
+  const pasos = [
+    {
+      id: 'perfil',
+      titulo: 'Perfil de empresa activo',
+      completo: !!perfil,
+      detalle: perfil ? perfil.nombre : sinPerfil ? 'Sin perfil configurado' : 'Cargando…',
+      cta: 'Configurar',
+      to: '/configuracion',
+    },
+    {
+      id: 'datos',
+      titulo: 'Datos cargados',
+      completo: (leadsTotalReal ?? 0) > 0 || hasEstablecimientos,
+      detalle: (leadsTotalReal ?? 0) > 0 ? `${leadsTotalReal} leads Radar` : hasEstablecimientos ? `${denue.length} establecimientos` : 'Sin datos todavía',
+      cta: 'Ir al mapa',
+      to: '/mapa',
+    },
+    {
+      id: 'investigacion',
+      titulo: 'Primera investigación',
+      completo: invCount > 0,
+      detalle: invCount > 0 ? 'Al menos 1 investigación creada' : 'Aún no hay investigaciones',
+      cta: 'Crear en el mapa',
+      to: '/mapa',
+    },
+    {
+      id: 'leads',
+      titulo: 'Leads en lista',
+      completo: (leadsTotalReal ?? 0) > 0,
+      detalle: (leadsTotalReal ?? 0) > 0 ? `${leadsTotalReal} leads` : 'Sin leads curados',
+      cta: 'Ver leads',
+      to: '/leads',
+    },
+    {
+      id: 'pipeline',
+      titulo: 'Primera corrida del pipeline',
+      completo: runs.length > 0,
+      detalle: runs.length > 0 ? `${runs.length} corridas registradas` : 'Sin corridas',
+      cta: 'Ir a Operación',
+      to: '/operacion',
+    },
+  ];
+  const completos = pasos.filter((s) => s.completo).length;
+  const siguientePaso = pasos.find((s) => !s.completo);
 
   return (
     <div className="flex h-full flex-col">
       <Topbar titulo="Inicio" subtitulo="Dashboard general · GEIS × Radar · inteligencia geomarketing + ejecución comercial" />
       <div className="flex-1 space-y-6 overflow-y-auto p-6">
         <div className="mx-auto max-w-5xl space-y-6">
-          {cargandoPerfil ? (
-            <Skeleton className="h-16" />
-          ) : sinPerfil ? (
-            <Card className="border-primary/40 bg-primary/5">
-              <CardContent className="flex flex-col items-start gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          {/* Primeros pasos — checklist de estado real */}
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-base font-bold">🛠️ Aún no configuras tu empresa</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    El asistente de configuración te guía en 4 pasos: giro, perfil, IA interna y activación.
-                    Sin esto, el scoring y los reportes usan valores genéricos.
-                  </p>
+                  <CardTitle>Primeros pasos</CardTitle>
+                  <CardDescription>Estado real del sistema · {completos} de 5 pasos completos</CardDescription>
                 </div>
-                <Button onClick={() => navigate('/configuracion')} className="shrink-0">
-                  Configurar ahora →
-                </Button>
-              </CardContent>
-            </Card>
-          ) : perfil ? (
-            <Card>
-              <CardContent className="flex flex-wrap items-center gap-2 pt-6">
-                <span className="text-sm text-muted-foreground">Empresa activa:</span>
-                <Badge variant="default" className="text-sm">{perfil.nombre}</Badge>
-                {perfil.vertical_id && <Badge variant="outline">vertical: {perfil.vertical_id}</Badge>}
-                <Badge variant="secondary">v{perfil.version}</Badge>
-                <Button variant="link" size="sm" className="ml-auto h-auto p-0" onClick={() => navigate('/configuracion')}>
-                  Editar configuración →
-                </Button>
-              </CardContent>
-            </Card>
-          ) : null}
+                {siguientePaso ? (
+                  <Button onClick={() => navigate(siguientePaso.to)}>Siguiente paso: {siguientePaso.titulo} →</Button>
+                ) : (
+                  <Badge variant="success">Sistema operando</Badge>
+                )}
+              </div>
+              <Progress value={(completos / 5) * 100} className="mt-3" />
+              <p className="text-xs text-muted-foreground">{completos} de 5</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {cargandoPerfil && <Skeleton className="h-10" />}
+              {pasos.map((paso, i) => (
+                <div key={paso.id} className="flex flex-wrap items-center gap-3 border-b py-2 last:border-0">
+                  <span aria-hidden className="text-lg">{paso.completo ? '✓' : '○'}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">{i + 1}. {paso.titulo}</p>
+                    <p className="text-xs text-muted-foreground">{paso.detalle}</p>
+                  </div>
+                  {paso.completo ? (
+                    <Badge variant="secondary">Completo</Badge>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => navigate(paso.to)}>{paso.cta}</Button>
+                  )}
+                </div>
+              ))}
+              {completos === 5 && (
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <span className="text-sm font-medium">Sistema operando — accesos rápidos:</span>
+                  <Button size="sm" onClick={() => navigate('/mapa')}>Mapa</Button>
+                  <Button size="sm" variant="outline" onClick={() => navigate('/leads')}>Leads</Button>
+                  <Button size="sm" variant="outline" onClick={() => navigate('/operacion')}>Operación</Button>
+                </div>
+              )}
+              {perfil && (
+                <p className="pt-1 text-xs text-muted-foreground">
+                  Empresa activa: <strong>{perfil.nombre}</strong>
+                  {perfil.vertical_id ? ` · vertical: ${perfil.vertical_id}` : ''} · v{perfil.version}{' '}
+                  <button type="button" className="text-primary hover:underline" onClick={() => navigate('/configuracion')}>Editar configuración →</button>
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Cómo funciona */}
+          <section>
+            <h2 className="mb-3 text-lg font-semibold tracking-tight">Cómo funciona</h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { n: 1, titulo: 'Configura', desc: 'Define tu empresa, giro y líneas para que el scoring use tus criterios.', to: '/configuracion' },
+                { n: 2, titulo: 'Investiga', desc: 'Dibuja un territorio en el mapa y mide demanda, competencia y potencial.', to: '/mapa' },
+                { n: 3, titulo: 'Actúa', desc: 'Trabaja la lista de leads: etapa, notas, señales y contacto directo.', to: '/leads' },
+                { n: 4, titulo: 'Opera', desc: 'Lanza pipelines, revisa corridas y exporta resultados a tu CRM.', to: '/operacion' },
+              ].map((s) => (
+                <button key={s.n} type="button" onClick={() => navigate(s.to)} className="rounded-xl border bg-card p-4 text-left shadow transition-colors hover:bg-muted/50">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Paso {s.n}</p>
+                  <p className="mt-1 font-semibold">{s.titulo} →</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{s.desc}</p>
+                </button>
+              ))}
+            </div>
+          </section>
 
           {/* KPIs generales */}
           <section>
@@ -215,7 +308,7 @@ export default function Inicio() {
             ) : (
               <>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                  <KpiStat titulo="Leads Radar" valor={String(dash.total)} nota="prod.leads · scrapeo + scoring" />
+                  <KpiStat titulo="Leads Radar" valor={String(dash.total)} nota="Total real · prod.leads (GET /leads/count)" />
                   <KpiStat titulo="Nuevos" valor={String(dash.nuevos)} nota="etapa «nuevo» · sin primer contacto" />
                   <KpiStat titulo="En pipeline" valor={String(dash.enPipeline)} nota="contactado + reunión + propuesta" />
                   <KpiStat titulo="Ganados" valor={String(dash.ganados)} nota={`perdidos: ${dash.perdidos}`} />
@@ -228,10 +321,10 @@ export default function Inicio() {
                   <Card>
                     <CardHeader>
                       <CardTitle>Funnel comercial</CardTitle>
-                      <CardDescription>Leads Radar por etapa</CardDescription>
+                      <CardDescription>Leads Radar por etapa{(leadsTotalReal ?? 0) > curados.length ? " · sobre los primeros 100 leads" : ""}</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      {dash.total > 0 ? (
+                      {dash.totalCargados > 0 ? (
                         <Chart
                           height={280}
                           option={{
@@ -257,10 +350,10 @@ export default function Inicio() {
                   <Card>
                     <CardHeader>
                       <CardTitle>Línea recomendada</CardTitle>
-                      <CardDescription>Distribución de los leads Radar</CardDescription>
+                      <CardDescription>Distribución de los leads Radar{(leadsTotalReal ?? 0) > curados.length ? " · sobre los primeros 100 leads" : ""}</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      {dash.total > 0 ? (
+                      {dash.totalCargados > 0 ? (
                         <Chart
                           height={280}
                           option={{

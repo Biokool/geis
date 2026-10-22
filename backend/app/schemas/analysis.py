@@ -1,4 +1,6 @@
 """Esquemas del router de análisis (CU-1, CU-2, CU-3)."""
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 from app.schemas.common import Lineage
@@ -78,4 +80,36 @@ class LookalikeItem(BaseModel):
 class LookalikeResponse(BaseModel):
     ranking: list[LookalikeItem]
     nota: str | None = None
+    lineage: Lineage
+
+
+# ------------------------------------------------------------ comparación --
+class CompareRequest(BaseModel):
+    """Comparación de investigaciones: entre 2 y 5 ids."""
+
+    investigation_ids: list[UUID] = Field(
+        min_length=2,
+        max_length=5,
+        description="Ids de las investigaciones a comparar (de 2 a 5)",
+    )
+
+
+class CompareItem(BaseModel):
+    """Resumen comparable de una investigación (anillo de mayor radio)."""
+
+    id: str
+    nombre: str
+    territorio: str
+    center_lat: float | None = None
+    center_lon: float | None = None
+    veredicto: str
+    ism: float
+    competencia: int
+    poblacion: float
+    tam: float
+    huff_score: float
+
+
+class CompareResponse(BaseModel):
+    items: list[CompareItem]
     lineage: Lineage

@@ -10,7 +10,7 @@ Prioridad: **P0** = próximo sprint · **P1** = planificado · **P2** = backlog 
 ## P1
 
 - [ ] Alerta de expiración del token LinkedIn (leer `expires_at` del provider y avisar N días antes en Sistema).
-- [ ] Contador total de leads sin iterar cursor (endpoint agregado `GET /leads/count` o `total` estimado) — hoy el dashboard de Inicio pagina 5 rondas × 100 para contar.
+- [x] Contador total de leads sin iterar cursor — ✅ 2026-10-21 (Revisión Profunda): `GET /api/v1/leads/count` con filtros etapa/línea/source; badge del menú y KPIs lo usan.
 - [ ] Toast/UI cuando `/leads*` devuelve 422 por límite (defensa en profundidad si alguien reintroduce `limit>100`).
 - [ ] `make radar` — target de Makefile que dispare la cadena 01→05 en orden con verificación de gating.
 - [ ] Documentar proceso de creación exacta de las 3 propiedades custom de HubSpot (payload completo por propiedad) en deployment.md.
@@ -22,7 +22,7 @@ Prioridad: **P0** = próximo sprint · **P1** = planificado · **P2** = backlog 
 - [ ] Auth de la API (JWT ya firmado con SECRET_KEY; falta guard en rutas) para despliegue expuesto.
 - [ ] Export Excel (`formato=excel` responde 501; CSV funciona con tope 5,000).
 - [ ] `GET /api/v1/reports/{id}/pdf` (fase 2 del backend, tooltips honestos en UI).
-- [ ] `POST /api/v1/leads/sync` y `DELETE /api/v1/investigations/{id}` (fase 2).
+- [ ] `POST /api/v1/leads/sync` (fase 2; el `DELETE /investigations/{id}` ya está implementado).
 - [ ] Panel de costo de créditos Apollo/Apify por run.
 - [ ] Limpieza de registros `detalle` anómalos en el origen (hoy el ADR-005 normaliza existentes; los writers ya respetan dict).
 

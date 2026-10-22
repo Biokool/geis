@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, CircleMarker, Popup, GeoJSON, useMap, ZoomControl } from 'react-leaflet';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { MapContainer, TileLayer, CircleMarker, Circle, Popup, GeoJSON, useMap, ZoomControl } from 'react-leaflet';
 import L from 'leaflet';
 import '@geoman-io/leaflet-geoman-free';
 import { Topbar } from '@/components/layout/Topbar';
@@ -13,7 +13,7 @@ import { Switch } from '@/components/ui/Switch';
 import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { get, post, errorMessage, type Lead, type LeadCurado, lineaColor } from '@/lib/api';
+import { get, post, errorMessage, type Lead, type LeadCurado, type Investigation, lineaColor } from '@/lib/api';
 import { estratoColor, estratoRadio, areaKm2 } from '@/lib/geo';
 import { useGeisStore } from '@/store';
 import { toast } from 'sonner';
@@ -45,6 +45,22 @@ function GeomanControl({ onPolygon }: { onPolygon: (g: GeoJSON.GeoJSON) => void 
     return () => { m.off('pm:create', handler); m.pm.removeControls(); };
   }, [map, onPolygon]);
   return null;
+}
+
+function MoverMapa({ centro, zoom = 13 }: { centro: [number, number] | null; zoom?: number }) {
+  const map = useMap();
+  React.useEffect(() => {
+    if (centro) map.setView(centro, zoom);
+  }, [map, centro, zoom]);
+  return null;
+}
+
+/** Color de lead por score: ≥70 verde, 40–69 ámbar, <40 gris. */
+function scoreColor(score?: number): string {
+  const s = score ?? 0;
+  if (s >= 70) return '#2F9E44';
+  if (s >= 40) return '#E8A13D';
+  return '#8a93a6';
 }
 
 interface B2bLead {
@@ -82,10 +98,14 @@ export default function Mapa() {
   const [capaTemp, setCapaTemp] = React.useState(false);
   const [capaLinea, setCapaLinea] = React.useState(true);
   const [poligono, setPoligono] = React.useState<GeoJSON.GeoJSON | null>(null);
+  const [invCentro, setInvCentro] = React.useState<[number, number] | null>(null);
+  const [invRadios, setInvRadios] = React.useState<number[]>([]);
+  const [capaLeads, setCapaLeads] = React.useState(true);
   const [b2b, setB2b] = React.useState<B2bResult | null>(null);
   const [analizando, setAnalizando] = React.useState(false);
   const setTerritorio = useGeisStore((s) => s.setTerritorio);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   React.useEffect(() => {
     let vivo = true;
@@ -106,6 +126,51 @@ export default function Mapa() {
       .finally(() => vivo && setLoading(false));
     return () => { vivo = false; };
   }, []);
+
+  React.useEffect(() => {
+    const invId = searchParams.get('inv');
+    if (!invId) return;
+    let vivo = true;
+    get<Investigation>(`/investigations/${invId}`)
+      .then((inv) => {
+        if (!vivo) return;
+        if (inv.center_lat != null && inv.center_lon != null) {
+          setInvCentro([inv.center_lat, inv.center_lon]);
+          setInvRadios(inv.radii_m ?? []);
+          setTerritorio({ nombre: inv.title ?? `Investigación ${invId.slice(0, 8)}`, tipo: inv.territory_kind ?? 'point_buffers' });
+          toast.success('Investigación cargada en el mapa', { description: inv.title ?? invId });
+        } else {
+          toast.info('La investigación no trae centro geográfico', { description: 'No se puede centrar el mapa.' });
+        }
+      })
+      .catch((e) => { if (vivo) toast.error('No se pudo cargar la investigación', { description: errorMessage(e) }); });
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const crearInvestigacionAqui = async (l: Lead) => {
+    if (l.lat == null || l.lon == null) { toast.error('Sin coordenadas para crear la investigación'); return; }
+    try {
+      const nombre = l.razon_social ?? l.nombre ?? 'Establecimiento';
+      const creada = await post<Investigation>('/investigations', {
+        user_id: 'analista',
+        title: nombre,
+        investigation_type: 'location_viability',
+        territory_kind: 'point_buffers',
+        center_lat: l.lat,
+        center_lon: l.lon,
+        radii_m: [1000, 2000],
+        params: { scian: l.scian_code },
+      });
+      const nuevoId = creada.investigation_id;
+      toast.success('Investigación creada', {
+        description: nombre,
+        action: nuevoId ? { label: 'Ver reporte', onClick: () => navigate(`/reporte?id=${nuevoId}`) } : undefined,
+      });
+    } catch (e) {
+      toast.error('No se pudo crear la investigación', { description: errorMessage(e) });
+    }
+  };
 
   const onPolygon = React.useCallback(async (g: GeoJSON.GeoJSON) => {
     setPoligono(g);
@@ -148,6 +213,12 @@ export default function Mapa() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <GeomanControl onPolygon={onPolygon} />
+            <MoverMapa centro={invCentro} />
+            {invCentro && invRadios.map((r) => (
+              <Circle key={r} center={invCentro} radius={r} pathOptions={{ color: '#0E5FD8', weight: 2, fillOpacity: 0.05, dashArray: '6 4' }}>
+                <Popup><div className="text-sm"><p className="font-semibold">Radio {r} m</p><p className="text-xs text-muted-foreground">Círculo de radio de la investigación (no es una isócrona).</p></div></Popup>
+              </Circle>
+            ))}
             {capaDenue && leads.map((l, i) => (
               <CircleMarker
                 key={l.denue_id ?? l.id ?? i}
@@ -160,6 +231,8 @@ export default function Mapa() {
                     <p className="font-semibold">{l.razon_social ?? l.nombre ?? 'Establecimiento'}</p>
                     <p className="text-xs text-muted-foreground">Estrato: {l.estrato ?? '—'} · {l.distancia_km !== undefined ? `${l.distancia_km.toFixed(1)} km` : ''}</p>
                     {l.scian_code && <p className="font-mono text-xs">SCIAN {l.scian_code}</p>}
+                    {l.scian_desc && <p className="text-xs">{l.scian_desc}</p>}
+                    <button type="button" onClick={() => crearInvestigacionAqui(l)} style={{ marginTop: 6, padding: '4px 8px', borderRadius: 6, background: '#0E5FD8', color: '#fff', fontSize: 12, cursor: 'pointer', border: 'none' }}>Crear investigación aquí</button>
                   </div>
                 </Popup>
               </CircleMarker>
@@ -184,33 +257,44 @@ export default function Mapa() {
                 interactive={false}
               />
             ))}
-            {capaLinea && curados.map((l) => (
+            {capaLeads && curados.map((l) => (
               <CircleMarker
-                key={`r${l.lead_id}`}
+                key={`lead${l.lead_id}`}
                 center={[l.lat!, l.lon!]}
                 radius={7}
-                pathOptions={{ color: '#fff', weight: 1.5, fillColor: lineaColor(l.linea_recomendada), fillOpacity: 0.95 }}
+                pathOptions={{ color: '#fff', weight: 1.5, fillColor: scoreColor(l.score), fillOpacity: 0.95 }}
               >
                 <Popup>
                   <div className="text-sm">
                     <p className="font-semibold">{l.nombre}</p>
-                    <p className="text-xs text-muted-foreground">{l.giro ?? '—'} · Etapa: {l.etapa ?? 'nuevo'}</p>
-                    <p className="text-xs">Línea: <strong style={{ color: lineaColor(l.linea_recomendada) }}>{lineaNombre(l.linea_recomendada)}</strong></p>
+                    <p className="text-xs">Score: <span className="font-mono font-semibold">{l.score ?? '—'}</span> · Etapa: {l.etapa ?? 'nuevo'}</p>
+                    <p className="text-xs text-muted-foreground">{l.giro ?? '—'} · Línea: {lineaNombre(l.linea_recomendada)}</p>
                     {l.temp_zona !== undefined && <p className="text-xs">🌡️ {l.temp_zona} °C en zona</p>}
-                    {l.score !== undefined && <p className="text-xs">Score: <span className="font-mono font-semibold">{l.score}</span></p>}
+                    <button type="button" onClick={() => navigate('/leads?lead=' + l.lead_id)} style={{ marginTop: 6, padding: '4px 8px', borderRadius: 6, background: '#0E5FD8', color: '#fff', fontSize: 12, cursor: 'pointer', border: 'none' }}>Ver ficha</button>
                   </div>
                 </Popup>
               </CircleMarker>
+            ))}
+            {capaLinea && curados.map((l) => (
+              <CircleMarker
+                key={`r${l.lead_id}`}
+                center={[l.lat!, l.lon!]}
+                radius={3}
+                pathOptions={{ color: lineaColor(l.linea_recomendada), weight: 2, fillColor: lineaColor(l.linea_recomendada), fillOpacity: 0.9 }}
+                interactive={false}
+              />
             ))}
           </MapContainer>
           <div className="absolute left-3 top-3 z-[500] space-y-2">
             <Card className="p-3">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Capas</p>
               <div className="space-y-2">
-                <div className="flex items-center gap-2"><Switch id="c-denue" checked={capaDenue} onCheckedChange={setCapaDenue} /><Label htmlFor="c-denue" className="text-sm">Establecimientos DENUE</Label></div>
+                <div className="flex items-center gap-2"><Switch id="c-denue" checked={capaDenue} onCheckedChange={setCapaDenue} /><Label htmlFor="c-denue" className="text-sm">Establecimientos DENUE ({leads.length})</Label></div>
+                <div className="flex items-center gap-2"><Switch id="c-leads" checked={capaLeads} onCheckedChange={setCapaLeads} /><Label htmlFor="c-leads" className="text-sm">Leads ({curados.length})</Label></div>
                 <div className="flex items-center gap-2"><Switch id="c-heat" checked={capaHeat} onCheckedChange={setCapaHeat} /><Label htmlFor="c-heat" className="text-sm">Mapa de calor IDT</Label></div>
                 <div className="flex items-center gap-2"><Switch id="c-temp" checked={capaTemp} onCheckedChange={setCapaTemp} /><Label htmlFor="c-temp" className="text-sm">Temperatura de zona (Radar)</Label></div>
                 <div className="flex items-center gap-2"><Switch id="c-linea" checked={capaLinea} onCheckedChange={setCapaLinea} /><Label htmlFor="c-linea" className="text-sm">Líneas recomendadas (Radar)</Label></div>
+              <p className="pt-1 text-xs font-medium">Mostrando {capaDenue ? leads.length : 0} establecimientos · {capaLeads ? curados.length : 0} leads</p>
               </div>
               <div className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">
                 <p className="font-semibold text-foreground">Leyenda</p>
@@ -218,6 +302,11 @@ export default function Mapa() {
                 <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#E8A13D' }} /> estrato 51-100</p>
                 <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#00B39B' }} /> estrato 11-50</p>
                 <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#8a93a6' }} /> micro</p>
+                <p className="mt-1 font-semibold text-foreground">Score de leads</p>
+                <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#2F9E44' }} /> score ≥ 70</p>
+                <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#E8A13D' }} /> score 40–69</p>
+                <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#8a93a6' }} /> score &lt; 40</p>
+                <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm border-2" style={{ borderColor: '#0E5FD8' }} /> polígono / radios de investigación</p>
                 <p className="mt-1 font-semibold text-foreground">Línea recomendada</p>
                 <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#E8590C' }} /> Koolkat · control térmico</p>
                 <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#E8A13D' }} /> Solar · paneles</p>

@@ -1,61 +1,95 @@
+import * as React from 'react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useGeisStore } from '@/store';
+import { Badge } from '@/components/ui/Badge';
+import { getLeadsCount } from '@/lib/api';
 
-const NAV = [
-  { to: '/', label: 'Inicio', icon: '🏠' },
-  { to: '/mapa', label: 'Mapa', icon: '🗺️' },
-  { to: '/kpis', label: 'KPIs', icon: '📊' },
-  { to: '/leads', label: 'Leads', icon: '🎯' },
-  { to: '/reporte', label: 'Reporte', icon: '📄' },
-  { to: '/comparador', label: 'Comparador', icon: '⚖️' },
-  { to: '/historial', label: 'Historial', icon: '🕘' },
-  { to: '/geofencing', label: 'Geofencing', icon: '⬡' },
-  { to: '/exportacion', label: 'Exportación', icon: '📤' },
-  { to: '/operacion', label: 'Operación', icon: '⚙️' },
-  { to: '/sistema', label: 'Sistema', icon: '🖥️' },
+type NavItem = { to: string; label: string; icon: string };
+
+const INICIO: NavItem = { to: '/', label: 'Inicio', icon: '🏠' };
+
+const GRUPOS: { titulo: string; items: NavItem[] }[] = [
+  {
+    titulo: '1 · Inteligencia',
+    items: [
+      { to: '/mapa', label: 'Mapa', icon: '🗺️' },
+      { to: '/reporte', label: 'Reporte', icon: '📄' },
+      { to: '/comparador', label: 'Comparador', icon: '⚖️' },
+      { to: '/historial', label: 'Historial', icon: '🕘' },
+    ],
+  },
+  {
+    titulo: '2 · Prospección',
+    items: [
+      { to: '/leads', label: 'Leads', icon: '🎯' },
+      { to: '/kpis', label: 'KPIs', icon: '📊' },
+    ],
+  },
+  {
+    titulo: '3 · Operación',
+    items: [
+      { to: '/operacion', label: 'Operación', icon: '⚙️' },
+      { to: '/geofencing', label: 'Geofencing', icon: '⬡' },
+      { to: '/exportacion', label: 'Exportación', icon: '📤' },
+    ],
+  },
+  {
+    titulo: '4 · Sistema',
+    items: [
+      { to: '/sistema', label: 'Sistema', icon: '🖥️' },
+      { to: '/configuracion', label: 'Configuración', icon: '🛠️' },
+      { to: '/asistente', label: 'Asistente IA', icon: '🤖' },
+    ],
+  },
 ];
 
-const NAV_SISTEMA = [
-  { to: '/configuracion', label: 'Configuración', icon: '🛠️' },
-  { to: '/asistente', label: 'Asistente IA', icon: '🤖' },
-];
-
-function Enlaces({ items, onNavegar }: { items: typeof NAV; onNavegar?: () => void }) {
+function Item({ item, onNavegar, leadsTotal }: { item: NavItem; onNavegar?: () => void; leadsTotal?: number | null }) {
   return (
-    <>
-      {items.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          end={item.to === '/'}
-          onClick={onNavegar}
-          className={({ isActive }) =>
-            cn(
-              'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted',
-              isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground',
-            )
-          }
-        >
-          <span className="text-base" aria-hidden>{item.icon}</span>
-          {item.label}
-        </NavLink>
-      ))}
-    </>
+    <NavLink
+      to={item.to}
+      end={item.to === '/'}
+      onClick={onNavegar}
+      className={({ isActive }) =>
+        cn(
+          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted',
+          isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground',
+        )
+      }
+    >
+      <span className="text-base" aria-hidden>{item.icon}</span>
+      <span className="flex-1">{item.label}</span>
+      {item.to === '/leads' && leadsTotal != null && leadsTotal > 0 && (
+        <Badge variant="secondary" className="ml-auto text-[11px]">{leadsTotal}</Badge>
+      )}
+    </NavLink>
   );
 }
 
-/** Contenido de navegación, reutilizado en el drawer móvil. */
 export function SidebarNav({ onNavegar }: { onNavegar?: () => void }) {
   const territorio = useGeisStore((s) => s.territorio);
+  const [leadsTotal, setLeadsTotal] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    let vivo = true;
+    getLeadsCount()
+      .then((r) => { if (vivo) setLeadsTotal(r.total); })
+      .catch(() => { if (vivo) setLeadsTotal(null); });
+    return () => { vivo = false; };
+  }, []);
+
   return (
     <div className="flex h-full flex-col">
       <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Navegación principal">
-        <Enlaces items={NAV} onNavegar={onNavegar} />
-        <p className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Sistema
-        </p>
-        <Enlaces items={NAV_SISTEMA} onNavegar={onNavegar} />
+        <Item item={INICIO} onNavegar={onNavegar} leadsTotal={leadsTotal} />
+        {GRUPOS.map((g) => (
+          <div key={g.titulo}>
+            <p className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{g.titulo}</p>
+            {g.items.map((item) => (
+              <Item key={item.to} item={item} onNavegar={onNavegar} leadsTotal={leadsTotal} />
+            ))}
+          </div>
+        ))}
       </nav>
       <div className="border-t p-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Territorio</p>

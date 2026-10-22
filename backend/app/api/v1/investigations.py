@@ -1,7 +1,7 @@
 """Router de investigaciones: historial CRUD (§7.1 del SRS)."""
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.api.v1._common import lineage
@@ -61,6 +61,22 @@ def leer_investigacion(investigation_id: UUID, db: Session = Depends(get_db)):
     if not inv:
         raise HTTPException(status_code=404, detail="Investigación no encontrada")
     return _to_out(inv, db)
+
+
+@router.delete("/{investigation_id}", status_code=204)
+def eliminar_investigacion(investigation_id: UUID, db: Session = Depends(get_db)):
+    """Elimina físicamente una investigación (204 sin cuerpo).
+
+    El modelo no tiene ``deleted_at``, así que el borrado es físico; las
+    filas hijas de ``investigation_leads`` se eliminan en la BD por la FK
+    con ON DELETE CASCADE.
+    """
+    inv = db.get(UserInvestigation, investigation_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigación no encontrada")
+    db.delete(inv)
+    db.commit()
+    return Response(status_code=204)
 
 
 def _to_out(inv: UserInvestigation, db: Session) -> InvestigationOut:
