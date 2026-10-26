@@ -168,6 +168,7 @@ export interface Investigation {
   params?: Record<string, unknown>;
   scores?: Record<string, number | string> | null;
   verdict?: string | null;
+  es_principal?: boolean;
   status?: string;
   created_at?: string;
   lineage?: Lineage | null;
@@ -507,4 +508,176 @@ export function desdeRadar(l: LeadCurado): LeadUnificado {
     rating: l.rating,
     crudoRadar: l,
   };
+}
+
+/* ---------- Sección 1 · Ubicaciones (Sabueso): geocode, reportes, shares ---------- */
+
+/** Resultado de `POST /territories/geocode` (geocodificación real, sin stub). */
+export interface GeocodeResult {
+  lat: number;
+  lon: number;
+  label: string;
+  stub: boolean;
+  fuente: 'coordenadas' | 'link_maps' | 'nominatim' | string;
+  direccion_formateada?: string | null;
+  colonia?: string | null;
+  municipio?: string | null;
+  entidad?: string | null;
+  cp?: string | null;
+}
+
+/**
+ * Geocodifica una dirección o link de Google Maps, o hace reverse de un
+ * punto {lat, lon}. Lanza ApiError 422 si la dirección no resuelve
+ * (nunca devuelve un punto falso).
+ */
+export function geocode(input: { address: string } | { lat: number; lon: number }) {
+  return post<GeocodeResult>('/territories/geocode', input);
+}
+
+/** Ficha local del catálogo sectorial (espejo de `app/analytics/sector_data.py`). */
+export interface GiroFicha {
+  nombre: string;
+  scian: string[];
+  alias: string[];
+}
+
+/** Los 15 giros frecuentes del catálogo sectorial (Anexo B.4 del SRS). */
+export const GIROS_CATALOGO: GiroFicha[] = [
+  { nombre: 'Cafeterías', scian: ['722515'], alias: ['cafetería', 'café', 'cafe'] },
+  { nombre: 'Sushi', scian: ['722511', '722514'], alias: ['sushi', 'comida japonesa'] },
+  { nombre: 'Tintorería', scian: ['812320'], alias: ['tintorería', 'tintoreria'] },
+  { nombre: 'Tortillería', scian: ['311830'], alias: ['tortillería', 'tortilleria'] },
+  { nombre: 'Carnicería', scian: ['461160'], alias: ['carnicería', 'carniceria'] },
+  { nombre: 'Lavandería', scian: ['812310'], alias: ['lavandería', 'lavanderia'] },
+  { nombre: 'Barbería', scian: ['812110'], alias: ['barbería', 'barberia', 'barber shop'] },
+  { nombre: 'Pizzería', scian: ['722513'], alias: ['pizzería', 'pizzeria', 'pizza'] },
+  { nombre: 'Matcha', scian: ['722515'], alias: ['matcha', 'té matcha', 'te matcha'] },
+  { nombre: 'Food truck', scian: ['722330'], alias: ['food truck', 'foodtruck', 'camión de comida'] },
+  { nombre: 'Pollo asado', scian: ['722511'], alias: ['pollo asado', 'pollo rostizado', 'rosticería'] },
+  { nombre: 'Farmacias', scian: ['464111'], alias: ['farmacia', 'farmacias'] },
+  { nombre: 'Laboratorios clínicos', scian: ['621511'], alias: ['laboratorio clínico', 'laboratorios', 'laboratorio clinico'] },
+  { nombre: 'Consultorio dental', scian: ['621211'], alias: ['consultorio dental', 'dentista', 'clínica dental', 'dental'] },
+  { nombre: 'Franquicias', scian: ['722511'], alias: ['franquicia', 'franquicias'] },
+];
+
+/** Catálogo SCIAN del backend (`GET /catalogs/scian`), por si se necesita resolver descripciones. */
+export interface ScianCatalogItem {
+  scian_code: string;
+  description?: string;
+  sector_code?: string;
+  [k: string]: unknown;
+}
+
+export function listScianCatalog() {
+  return get<{ items: ScianCatalogItem[]; total: number }>('/catalogs/scian');
+}
+
+/** Crea una investigación (`POST /investigations`). */
+export function createInvestigation(body: {
+  title: string;
+  investigation_type?: string;
+  user_id?: string;
+  vertical?: string | null;
+  territory_kind?: string;
+  center_lat?: number;
+  center_lon?: number;
+  radii_m?: number[];
+  params?: Record<string, unknown>;
+}) {
+  return post<Investigation>('/investigations', {
+    user_id: 'analista',
+    investigation_type: 'location_viability',
+    territory_kind: 'point_buffers',
+    ...body,
+  });
+}
+
+/** Lee una investigación por id (`GET /investigations/{id}`). */
+export function getInvestigation(id: string) {
+  return get<Investigation>(`/investigations/${id}`);
+}
+
+/** Marca la ganadora persistente o renombra (`PATCH /investigations/{id}`). */
+export function patchInvestigation(id: string, body: { es_principal?: boolean; title?: string }) {
+  return patch<Investigation>(`/investigations/${id}`, body);
+}
+
+/** Payload crudo del reporte (las 14 secciones del builder; claves opcionales por bloque). */
+export type ReportPayload = Record<string, unknown>;
+
+export interface ReportOutS1 {
+  report_id: string;
+  title: string;
+  verdict?: string | null;
+  payload: ReportPayload;
+  created_at?: string;
+  lineage?: Record<string, unknown> | null;
+}
+
+export interface ReportCreateBody {
+  investigation_id?: string;
+  title?: string;
+  giro?: string;
+  scian?: string;
+  lat?: number;
+  lon?: number;
+  radios?: number[];
+  gasto_promedio_mensual?: number;
+  f_nse?: number;
+  f_pen?: number;
+}
+
+/** Genera y persiste un reporte (`POST /reports`). */
+export function createReport(body: ReportCreateBody) {
+  return post<ReportOutS1>('/reports', body);
+}
+
+/** Lee un reporte persistido (`GET /reports/{id}`). */
+export function getReport(id: string) {
+  return get<ReportOutS1>(`/reports/${id}`);
+}
+
+export interface ReportShare {
+  token: string;
+  url: string;
+  expira_en: string;
+}
+
+/** Crea un link invitado expirable para el reporte (`POST /reports/{id}/share`). */
+export function createReportShare(reportId: string, dias = 30) {
+  return post<ReportShare>(`/reports/${reportId}/share`, { dias });
+}
+
+export interface SharedReport {
+  report_id: string;
+  title: string;
+  verdict?: string | null;
+  payload: ReportPayload;
+  expira_en?: string | null;
+}
+
+/** Vista pública de solo lectura (`GET /reports/shared/{token}`). 404 si inválido/revocado/expirado. */
+export function getSharedReport(token: string) {
+  return get<SharedReport>(`/reports/shared/${token}`);
+}
+
+/** Revoca un link invitado (`DELETE /reports/{id}/share/{token}`) → 204. */
+export function revokeReportShare(reportId: string, token: string) {
+  return del<void>(`/reports/${reportId}/share/${token}`);
+}
+
+/** Ítem del comparador: investigación existente o punto directo (sin persistir). */
+export interface CompareInputItem {
+  investigation_id?: string;
+  lat?: number;
+  lon?: number;
+  giro?: string;
+  scian?: string;
+  etiqueta?: string;
+}
+
+/** Comparador forma nueva `items` (2–6 ubicaciones, `POST /analysis/compare`). */
+export function compareItems(items: CompareInputItem[]) {
+  return post<CompareResponse>('/analysis/compare', { items });
 }

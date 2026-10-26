@@ -1,4 +1,5 @@
-{"id":"czWM4gT_GzKyWunKE36WpU",
+{
+  "id": "czWM4gT_GzKyWunKE36WpU",
   "name": "01 - Radar scrape",
   "nodes": [
     {
@@ -18,7 +19,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "cronExpression": "0 6 * * 1"
+              "expression": "0 6 * * 1"
             }
           ]
         }
@@ -40,6 +41,7 @@
         "options": {}
       },
       "id": "52fde1c9-bff5-4e58-84c3-a95448cb1fdc",
+      "webhookId": "78b83ad8-10c0-418d-851f-3bd2cc2799e9",
       "name": "Webhook radar-01",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -51,7 +53,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// 3 queries x 2 corredores = 6 llamadas al scraper.\nconst queries = ['bodegas', 'centros logísticos', 'plantas industriales'];\nconst locations = ['Toluca, Estado de México', 'Querétaro, Querétaro'];\nconst items = [];\nfor (const q of queries)\n  for (const loc of locations)\n    items.push({ query: q, location: loc, max_results: 40 });\nreturn items;\n"
+        "jsCode": "// Construye las búsquedas del scraper.\n// - Desde el dashboard (webhook con body.target): usa el estado, municipio,\n//   colonia/zona y los giros elegidos en Operación.\n// - Desde el schedule o ejecución manual: conserva los corredores históricos.\nlet body = {};\ntry { body = $('Webhook radar-01').first().json.body || {}; } catch (e) { body = {}; }\nconst t = body.target || {};\nconst limpio = (v) => String(v == null ? '' : v).trim();\nconst zona = [limpio(t.colonia), limpio(t.cp), limpio(t.municipio), limpio(t.entidad)].filter(Boolean);\nconst location = zona.length ? zona.join(', ') : '';\nconst locations = location ? [location] : ['Toluca, Estado de México', 'Querétaro, Querétaro'];\nconst giros = Array.isArray(body.giros) && body.giros.length\n  ? body.giros.map((g) => String(g).trim()).filter(Boolean)\n  : ['bodegas', 'centros logísticos', 'plantas industriales'];\nconst items = [];\nfor (const q of giros)\n  for (const loc of locations)\n    items.push({ query: q, location: loc, max_results: 40 });\nreturn items;\n"
       },
       "id": "da895b22-43b7-47d6-823f-f822d27b1b13",
       "name": "Armar búsquedas",

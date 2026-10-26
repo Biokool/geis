@@ -4,6 +4,7 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.db.session import safe_rollback
 from app.schemas.common import Lineage, make_lineage
 
 
@@ -17,6 +18,7 @@ def edition_labels(db: Session) -> list[str]:
         )).all()
         return [r[0] for r in rows]
     except Exception:
+        safe_rollback(db)
         return []
 
 

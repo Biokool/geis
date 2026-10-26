@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Field } from '@/components/ui/Field';
 import { Spinner } from '@/components/ui/Spinner';
 import { Empty } from '@/components/ui/Empty';
+import { MapaExpandible } from '@/components/map/MapaExpandible';
 import { areaKm2, downloadBlob } from '@/lib/geo';
 import { useGeisStore } from '@/store';
 import { toast } from 'sonner';
@@ -84,8 +85,8 @@ export default function Geofencing() {
   return (
     <div className="flex h-full flex-col">
       <Topbar titulo="Constructor de polígonos" subtitulo="Geofencing manual: dibuja, mide y activa territorios" />
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div className="h-[55vh] min-w-0 flex-1 md:h-auto">
+      <MapaExpandible className="flex min-h-0 flex-1 flex-col md:flex-row" titulo="Constructor de polígonos">
+        <div className="mapa-lienzo h-[55vh] min-w-0 flex-1 md:h-auto">
           <MapContainer center={[23.6345, -102.5528]} zoom={5} className="h-full w-full" style={{ height: '100%' }}>
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -95,7 +96,7 @@ export default function Geofencing() {
             {geo && <GeoJSON key={JSON.stringify(geo)} data={geo} pathOptions={{ color: '#00B39B', weight: 2, fillOpacity: 0.1 }} />}
           </MapContainer>
         </div>
-        <aside className="w-full shrink-0 space-y-4 overflow-y-auto border-t bg-card p-4 md:w-80 md:border-l md:border-t-0">
+        <aside className="mapa-panel w-full shrink-0 space-y-4 overflow-y-auto border-t bg-card p-4 md:w-80 md:border-l md:border-t-0">
           <Card>
             <CardHeader>
               <CardTitle>Territorio</CardTitle>
@@ -146,7 +147,7 @@ export default function Geofencing() {
             </CardContent>
           </Card>
         </aside>
-      </div>
+      </MapaExpandible>
     </div>
   );
 }

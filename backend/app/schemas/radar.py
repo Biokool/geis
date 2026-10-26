@@ -35,6 +35,12 @@ class LeadOut(BaseModel):
     notas: str | None = None
     enriquecido_apollo: bool = False
     crm_synced_at: datetime | None = None
+    # Geografía derivada (migración 0005; la llena POST /leads/enrich-geo).
+    entidad: str | None = None
+    municipio: str | None = None
+    colonia: str | None = None
+    cp: str | None = None
+    scian: str | None = None
     lat: float | None = Field(default=None, description="ST_Y del geom")
     lon: float | None = Field(default=None, description="ST_X del geom")
     created_at: datetime | None = None
@@ -60,9 +66,40 @@ class LeadCountOut(BaseModel):
     total: int
 
 
+class EnrichGeoIn(BaseModel):
+    """Body opcional de POST /leads/enrich-geo."""
+
+    limite: int = Field(default=500, ge=1, le=5000)
+
+
+class EnrichGeoDetalle(BaseModel):
+    """Desglose de la corrida de enriquecimiento geográfico."""
+
+    con_geometria: int = 0
+    solo_cp: int = 0
+    sin_datos: int = 0
+
+
+class EnrichGeoOut(BaseModel):
+    """Resultado de POST /leads/enrich-geo (idempotente)."""
+
+    actualizados: int
+    pendientes: int
+    detalle: EnrichGeoDetalle
+
+
 # ---------------------------------------------------------------- pipelines
 class RunCreate(BaseModel):
     detalle: dict | None = None
+    #: Si es true, ``POST /pipelines/run/{stage}`` dispara el webhook real
+    #: de n8n (el workflow registra la corrida y ejecuta el proceso).
+    #: Por defecto false: los tests y las llamadas internas solo registran
+    #: la corrida localmente, como antes.
+    disparar: bool = False
+    #: Territorio objetivo para radar-01 (entidad/municipio/colonia/cp).
+    target: dict | None = None
+    #: Giros que buscará el scraper (si no vienen, el workflow usa sus defaults).
+    giros: list[str] | None = None
 
 
 class RunOut(BaseModel):

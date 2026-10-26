@@ -20,9 +20,15 @@
 - **Decisiones IA-emitidas:** ADR-004 (frontend), ADR-005 (detalle dict).
 - **Aprendizajes:** las pestañas abiertas con bundles obsoletos generan 404 que parecen bugs del backend — hard refresh tras cada rebuild; el 500 de un endpoint puede ser dato inválido, no código; contar leads sin `total` exige iterar `next_cursor` (hasta 5 rondas de 100 en el dashboard).
 
+## Sesión 4 — 2026-10-26 · Validación funcional E2E y fixes de cadena
+
+- **Alcance:** sweep de API (15 GETs + CRUDs); fix de mounts de `geis-api`, webhooks n8n (`webhookId`), cron 02 y rama warm de radar-03 (runs atascados por nodos con 0 items); E2E real de Querétaro (scrape Playwright → 18 leads); señal warm real → lead manual +25; fallback geo desde la dirección formateada (ADR-009) → filtros entidad/municipio/colonia/CP operativos (82 leads en Querétaro); fix del 500 en Analizar con giro libre (ADR-010: `prod.knowledge_facts` inexistente + `except` sin rollback que envenenaba la sesión); 139 tests.
+- **Decisiones IA-emitidas:** ADR-009 (respaldo geo de texto, excepción acotada), ADR-010 (knowledge_facts en public + `safe_rollback`, excepción acotada).
+- **Aprendizajes:** un nodo n8n con 0 items se salta y la cadena muere sin callback (guardas `skip` o `alwaysOutputData`); `n8n update:workflow` deprecado → `publish:workflow --id` + reinicio; `curl.exe -d "..."` mangling comillas → usar `--data-binary @archivo`; los dropdowns geo se pueblan solos porque el catálogo deriva de leads ∪ DENUE; un `except` que traga un error SQL sin rollback desplaza el 500 a otra función con traceback engañoso.
+
 ## Convenciones que la IA debe respetar (leer antes de operar)
 
-1. **AGENTS.md manda:** no tocar `backend/app` ni `frontend/src` sin autorización explícita del owner (las excepciones se registran — ver ADR-004).
+1. **AGENTS.md manda:** no tocar `backend/app` ni `frontend/src` sin autorización explícita del owner (las excepciones se registran — ver ADR-004/008/009).
 2. **UTF-8 sin BOM** para todo JSON tocado por n8n o PowerShell.
 3. **Los workflows se editan en disco** (`n8n/workflows/*.json`) y se re-importan (upsert por ID), nunca solo en la UI.
 4. **Bitácora append-only:** los runs no se borran; se marcan `error` con nota.

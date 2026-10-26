@@ -46,7 +46,10 @@ PESOS_GENERICO: dict[str, float] = {
 UMBRAL_TEMP_C = 30.0
 
 #: Giros que, en invierno, inclinan la línea recomendada a 'solar'.
-GIROS_SOLAR = ("gasolin", "estacionamiento", "plaza comercial", "comercial")
+#: Regla R5 del inventario Radar: la regex del workflow 02 es
+#: /gasolin|estacionamiento|comercial|plaza|tienda/ (la explicación de UI
+#: agrega 'super', pero eso es solo texto del drawer, no la regla).
+GIROS_SOLAR = ("gasolin", "estacionamiento", "comercial", "plaza", "tienda")
 
 
 def _normalizar_componentes(componentes: dict) -> dict[str, float | None]:

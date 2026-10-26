@@ -13,6 +13,8 @@ class LeadOut(BaseModel):
     estrato_ordinal: int
     colonia: str | None = None
     municipio: str | None = None
+    entidad: str | None = None
+    cp: str | None = None
     telefono: str | None = None
     correo: str | None = None
     sitio_web: str | None = None

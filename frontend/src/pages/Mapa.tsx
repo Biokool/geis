@@ -14,6 +14,12 @@ import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { get, post, errorMessage, type Lead, type LeadCurado, type Investigation, lineaColor } from '@/lib/api';
+import {
+  useGeoFiltros, getCuradosGeo, getReporte, postReporte, coordsDeUrlMaps,
+  type ReporteParaMapa, type AtractorItem, type GeoParams,
+} from '@/lib/apiGeo';
+import { NativeSelect } from '@/components/ui/NativeSelect';
+import { MapaExpandible } from '@/components/map/MapaExpandible';
 import { estratoColor, estratoRadio, areaKm2 } from '@/lib/geo';
 import { useGeisStore } from '@/store';
 import { toast } from 'sonner';
@@ -107,6 +113,36 @@ export default function Mapa() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  /* ── Sección 2 · preset Radar (?modo=radar) y capas del reporte ─────── */
+  const modoRadar = searchParams.get('modo') === 'radar';
+  const geo = useGeoFiltros();
+  const [invActual, setInvActual] = React.useState<Investigation | null>(null);
+  const [reporteMapa, setReporteMapa] = React.useState<ReporteParaMapa | null>(null);
+  const [cargandoReporte, setCargandoReporte] = React.useState(false);
+  const [capaAtractores, setCapaAtractores] = React.useState(true);
+  const [capaIsocronas, setCapaIsocronas] = React.useState(true);
+
+  // Preset Radar: capas de leads y temperatura activas por defecto.
+  React.useEffect(() => {
+    if (modoRadar) {
+      setCapaLeads(true);
+      setCapaTemp(true);
+    }
+  }, [modoRadar]);
+
+  const cargarCuradosGeo = React.useCallback(async (params: GeoParams) => {
+    try {
+      const r = await getCuradosGeo({ limit: 100, ...params });
+      const arr = Array.isArray(r) ? r : (r.items ?? []);
+      setCurados(arr.filter((l) => l.lat != null && l.lon != null));
+    } catch { /* la capa de leads es opcional: el mapa base sigue funcionando */ }
+  }, []);
+
+  // En modo Radar, la capa de leads se filtra con la cascada geográfica.
+  React.useEffect(() => {
+    if (modoRadar) void cargarCuradosGeo(geo.params);
+  }, [modoRadar, geo.params, cargarCuradosGeo]);
+
   React.useEffect(() => {
     let vivo = true;
     get<{ items?: Lead[]; data?: Lead[] } | Lead[]>('/leads', { limit: 100 })
@@ -134,6 +170,7 @@ export default function Mapa() {
     get<Investigation>(`/investigations/${invId}`)
       .then((inv) => {
         if (!vivo) return;
+        setInvActual(inv);
         if (inv.center_lat != null && inv.center_lon != null) {
           setInvCentro([inv.center_lat, inv.center_lon]);
           setInvRadios(inv.radii_m ?? []);
@@ -147,6 +184,65 @@ export default function Mapa() {
     return () => { vivo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  /* Reporte de la investigación activa: NO existe un GET «reporte por
+     investigación» en la API. Las vías reales son GET /reports/{report_id}
+     (si el id viene en ?reporte= o en params de la investigación) o
+     POST /reports con investigation_id (el mismo endpoint que usa la
+     página Reporte), que genera y devuelve el payload completo. */
+  const reporteIdParam = searchParams.get('reporte');
+  React.useEffect(() => {
+    const deParams = invActual?.params?.report_id ?? invActual?.params?.reporte_id;
+    const rid = reporteIdParam ?? (typeof deParams === 'string' ? deParams : null);
+    if (!rid) return;
+    let vivo = true;
+    setCargandoReporte(true);
+    getReporte(rid)
+      .then((r) => { if (vivo) setReporteMapa(r); })
+      .catch((e) => { if (vivo) toast.error('No se pudo cargar el reporte', { description: errorMessage(e) }); })
+      .finally(() => { if (vivo) setCargandoReporte(false); });
+    return () => { vivo = false; };
+  }, [reporteIdParam, invActual]);
+
+  const generarReporteMapa = async () => {
+    if (!invActual || invCentro == null) return;
+    setCargandoReporte(true);
+    try {
+      const params = (invActual.params ?? {}) as Record<string, unknown>;
+      const r = await postReporte({
+        investigation_id: invActual.investigation_id,
+        title: invActual.title ?? 'Reporte de ubicación',
+        giro: typeof params.giro === 'string' ? params.giro : (invActual.vertical ?? undefined),
+        scian: typeof params.scian === 'string' ? params.scian : undefined,
+        lat: invCentro[0],
+        lon: invCentro[1],
+        radios: invRadios.length ? invRadios : [1000, 2000],
+      });
+      setReporteMapa(r);
+      toast.success('Reporte generado', { description: 'Capas de atractores e isócronas actualizadas desde el payload real.' });
+    } catch (e) {
+      toast.error('No se pudo generar el reporte', { description: errorMessage(e) });
+    } finally {
+      setCargandoReporte(false);
+    }
+  };
+
+  const atractores = React.useMemo(
+    () => (reporteMapa?.payload?.atractores_trafico?.items ?? [])
+      .map((item) => ({ item, coords: coordsDeUrlMaps(item.url_maps) }))
+      .filter((x): x is { item: AtractorItem; coords: [number, number] } => x.coords != null),
+    [reporteMapa],
+  );
+  const atractoresSinCoords = (reporteMapa?.payload?.atractores_trafico?.items ?? []).length - atractores.length;
+  const isocronas = React.useMemo(
+    () => (reporteMapa?.payload?.area_alcance_tiempo?.isocronas ?? []).filter((i) => i.geometria),
+    [reporteMapa],
+  );
+  const categoriasAtractores = React.useMemo(
+    () => [...new Set(atractores.map((x) => x.item.categoria_etiqueta ?? x.item.categoria ?? 'Otro'))],
+    [atractores],
+  );
+  const invIdParam = searchParams.get('inv');
 
   const crearInvestigacionAqui = async (l: Lead) => {
     if (l.lat == null || l.lon == null) { toast.error('Sin coordenadas para crear la investigación'); return; }
@@ -198,9 +294,16 @@ export default function Mapa() {
 
   return (
     <div className="flex h-full flex-col">
-      <Topbar titulo="Mapa geoespacial" subtitulo="Geofencing, clústeres y demanda térmica · DENUE + IDT + Radar" />
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div className="relative h-[55vh] min-w-0 flex-1 md:h-auto">
+      <Topbar
+        titulo={modoRadar ? 'Mapa Radar' : 'Mapa geoespacial'}
+        subtitulo={modoRadar
+          ? 'Tus prospectos en el territorio · preset Radar: leads + temperatura + filtros geográficos'
+          : 'Geofencing, clústeres y demanda térmica · DENUE + IDT + Radar'}
+      />
+      {/* El contenedor ampliable incluye el mapa Y el panel de filtros:
+          en pantalla completa no se pierde ningún filtro/capa. */}
+      <MapaExpandible className="flex min-h-0 flex-1 flex-col md:flex-row" titulo="Mapa">
+        <div className="mapa-lienzo relative h-[55vh] min-w-0 flex-1 md:h-auto">
           {loading && (
             <div className="absolute inset-0 z-10 bg-background/60 p-4">
               <Skeleton className="h-full w-full" />
@@ -284,6 +387,43 @@ export default function Mapa() {
                 interactive={false}
               />
             ))}
+            {/* Sección 1: atractores del reporte (puntos por categoría; la
+                posición se extrae de la URL de Maps del propio payload) */}
+            {capaAtractores && atractores.map((x, i) => (
+              <CircleMarker
+                key={`atr${i}`}
+                center={x.coords}
+                radius={6}
+                pathOptions={{ color: '#fff', weight: 1.5, fillColor: colorCategoria(x.item.categoria_etiqueta ?? x.item.categoria ?? 'Otro'), fillOpacity: 0.95 }}
+              >
+                <Popup>
+                  <div className="text-sm">
+                    <p className="font-semibold">{x.item.nombre ?? 'Atractor'}</p>
+                    <p className="text-xs">{x.item.categoria_etiqueta ?? x.item.categoria ?? '—'}{x.item.distancia_m != null ? ` · ${Math.round(x.item.distancia_m)} m` : ''}</p>
+                    {x.item.url_maps && (
+                      <a href={x.item.url_maps} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Abrir en Maps ↗</a>
+                    )}
+                  </div>
+                </Popup>
+              </CircleMarker>
+            ))}
+            {/* Sección 1: isócronas reales del reporte (GeoJSON de
+                area_alcance_tiempo.isocronas[].geometria) */}
+            {capaIsocronas && isocronas.map((iso, i) => (
+              <GeoJSON
+                key={`iso${i}-${iso.minutos ?? 'x'}-${iso.modo ?? ''}`}
+                data={{ type: 'Feature', properties: {}, geometry: iso.geometria! } as GeoJSON.Feature}
+                pathOptions={{ color: colorIsocrona(i), weight: 2, fillColor: colorIsocrona(i), fillOpacity: 0.12 }}
+              >
+                <Popup>
+                  <div className="text-sm">
+                    <p className="font-semibold">Isócrona{iso.minutos != null ? ` · ${iso.minutos} min` : ''}{iso.modo ? ` · ${iso.modo}` : ''}</p>
+                    {iso.poblacion != null && <p className="text-xs">Población en el área: {Math.round(iso.poblacion)}</p>}
+                    {iso.competidores != null && <p className="text-xs">Competidores del giro: {iso.competidores}</p>}
+                  </div>
+                </Popup>
+              </GeoJSON>
+            ))}
           </MapContainer>
           <div className="absolute left-3 top-3 z-[500] space-y-2">
             <Card className="p-3">
@@ -294,7 +434,14 @@ export default function Mapa() {
                 <div className="flex items-center gap-2"><Switch id="c-heat" checked={capaHeat} onCheckedChange={setCapaHeat} /><Label htmlFor="c-heat" className="text-sm">Mapa de calor IDT</Label></div>
                 <div className="flex items-center gap-2"><Switch id="c-temp" checked={capaTemp} onCheckedChange={setCapaTemp} /><Label htmlFor="c-temp" className="text-sm">Temperatura de zona (Radar)</Label></div>
                 <div className="flex items-center gap-2"><Switch id="c-linea" checked={capaLinea} onCheckedChange={setCapaLinea} /><Label htmlFor="c-linea" className="text-sm">Líneas recomendadas (Radar)</Label></div>
+                {atractores.length > 0 && (
+                  <div className="flex items-center gap-2"><Switch id="c-atr" checked={capaAtractores} onCheckedChange={setCapaAtractores} /><Label htmlFor="c-atr" className="text-sm">Atractores ({atractores.length})</Label></div>
+                )}
+                {isocronas.length > 0 && (
+                  <div className="flex items-center gap-2"><Switch id="c-iso" checked={capaIsocronas} onCheckedChange={setCapaIsocronas} /><Label htmlFor="c-iso" className="text-sm">Isócronas ({isocronas.length})</Label></div>
+                )}
               <p className="pt-1 text-xs font-medium">Mostrando {capaDenue ? leads.length : 0} establecimientos · {capaLeads ? curados.length : 0} leads</p>
+              {modoRadar && <p className="pt-1"><Badge variant="accent">Preset Radar activo</Badge></p>}
               </div>
               <div className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">
                 <p className="font-semibold text-foreground">Leyenda</p>
@@ -311,11 +458,100 @@ export default function Mapa() {
                 <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#E8590C' }} /> Koolkat · control térmico</p>
                 <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#E8A13D' }} /> Solar · paneles</p>
                 <p><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#0E5FD8' }} /> Evaporativa · bioclimatización</p>
+                {categoriasAtractores.length > 0 && (
+                  <>
+                    <p className="mt-1 font-semibold text-foreground">Atractores por categoría</p>
+                    {categoriasAtractores.map((c) => (
+                      <p key={c}><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: colorCategoria(c) }} /> {c}</p>
+                    ))}
+                  </>
+                )}
+                {isocronas.length > 0 && <p className="mt-1"><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm border-2" style={{ borderColor: '#0E5FD8' }} /> isócronas del reporte (5/10/15 min)</p>}
               </div>
             </Card>
           </div>
         </div>
-        <aside className="w-full shrink-0 space-y-4 overflow-y-auto border-t bg-card p-4 md:w-80 md:border-l md:border-t-0">
+        <aside className="mapa-panel w-full shrink-0 space-y-4 overflow-y-auto border-t bg-card p-4 md:w-80 md:border-l md:border-t-0">
+          {modoRadar && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Filtros geográficos · Radar</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <label className="block text-xs font-medium">Entidad
+                  <NativeSelect className="mt-1 w-full" value={geo.sel.entidad} onChange={(e) => geo.cambiar('entidad', e.target.value)} aria-label="Entidad (Radar)">
+                    <option value="">Todas</option>
+                    {geo.opts.entidades.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </NativeSelect>
+                </label>
+                <label className="block text-xs font-medium">Municipio
+                  <NativeSelect className="mt-1 w-full" value={geo.sel.municipio} onChange={(e) => geo.cambiar('municipio', e.target.value)} aria-label="Municipio (Radar)">
+                    <option value="">Todos</option>
+                    {geo.opts.municipios.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </NativeSelect>
+                </label>
+                <label className="block text-xs font-medium">Colonia
+                  <NativeSelect className="mt-1 w-full" value={geo.sel.colonia} onChange={(e) => geo.cambiar('colonia', e.target.value)} aria-label="Colonia (Radar)">
+                    <option value="">Todas</option>
+                    {geo.opts.colonias.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </NativeSelect>
+                </label>
+                <label className="block text-xs font-medium">CP
+                  <NativeSelect className="mt-1 w-full" value={geo.sel.cp} onChange={(e) => geo.cambiar('cp', e.target.value)} aria-label="CP (Radar)">
+                    <option value="">Todos</option>
+                    {geo.opts.cps.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </NativeSelect>
+                </label>
+                <label className="block text-xs font-medium">SCIAN
+                  <NativeSelect className="mt-1 w-full" value={geo.sel.scian} onChange={(e) => geo.cambiar('scian', e.target.value)} aria-label="SCIAN (Radar)">
+                    <option value="">Todos</option>
+                    {geo.opts.scians.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </NativeSelect>
+                </label>
+                {geo.activo && <Button size="sm" variant="ghost" onClick={geo.limpiar}>Limpiar geografía</Button>}
+                <p className="text-[11px] text-muted-foreground">
+                  Cascada de <code>GET /catalogs/geo-filters</code>; filtra la capa de leads vía <code>GET /leads/curados</code> (AND). Mostrando {curados.length} leads con coordenadas.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+          <Card>
+            <CardHeader><CardTitle>Reporte de la investigación</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              {!invIdParam && !reporteIdParam ? (
+                <p className="text-muted-foreground">
+                  Sin investigación activa: las capas de <strong>Atractores</strong> e <strong>Isócronas</strong> aparecen cuando el mapa se abre con <code>?inv=</code> (desde el Historial) y su reporte trae esos datos. Sin datos, las capas no se muestran — nada inventado.
+                </p>
+              ) : cargandoReporte ? (
+                <div className="flex items-center gap-2 text-muted-foreground"><Spinner size={16} /> Cargando reporte…</div>
+              ) : !reporteMapa ? (
+                <>
+                  <p className="text-muted-foreground">
+                    La investigación está cargada pero aún no hay un reporte asociado en esta vista (la API no lista reportes por investigación). Genera el reporte para pintar atractores e isócronas desde su payload real, o abre el mapa con <code>&amp;reporte=&lt;id&gt;</code>.
+                  </p>
+                  <Button size="sm" onClick={generarReporteMapa} disabled={!invActual || invCentro == null}>
+                    Generar reporte de esta investigación
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <KpiRow label="Atractores pintados" valor={String(atractores.length)} fuente="payload.atractores_trafico.items" />
+                  {atractoresSinCoords > 0 && (
+                    <p className="text-[11px] text-muted-foreground">{atractoresSinCoords} atractores del payload no traen coordenadas en su URL de Maps y no se pintaron.</p>
+                  )}
+                  <KpiRow label="Isócronas pintadas" valor={String(isocronas.length)} fuente="payload.area_alcance_tiempo.isocronas" />
+                  {atractores.length === 0 && isocronas.length === 0 && (
+                    <p className="text-muted-foreground">
+                      El reporte no trae atractores ni isócronas (p. ej. Valhalla no respondió y el alcance quedó como radios): las capas no aparecen.
+                    </p>
+                  )}
+                  {reporteMapa.payload?.area_alcance_tiempo?.alcance_tipo && (
+                    <p className="text-[11px] text-muted-foreground">Tipo de alcance del reporte: {reporteMapa.payload.area_alcance_tiempo.alcance_tipo}.</p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader><CardTitle>Polígono activo</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -360,9 +596,24 @@ export default function Mapa() {
             </CardContent>
           </Card>
         </aside>
-      </div>
+      </MapaExpandible>
     </div>
   );
+}
+
+const PALETA_ATRACTORES = ['#0E5FD8', '#E8590C', '#2F9E44', '#9333EA', '#B98A04', '#0EA5A5', '#D64545', '#64748B'];
+
+/** Color estable por categoría de atractor (hash del nombre). */
+function colorCategoria(cat: string): string {
+  let h = 0;
+  for (const c of cat) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return PALETA_ATRACTORES[h % PALETA_ATRACTORES.length];
+}
+
+const COLORES_ISOCRONA = ['#0E5FD8', '#E8590C', '#2F9E44'];
+
+function colorIsocrona(i: number): string {
+  return COLORES_ISOCRONA[i % COLORES_ISOCRONA.length];
 }
 
 function heatColor(idt?: number): string {

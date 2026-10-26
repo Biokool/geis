@@ -20,7 +20,7 @@ from app.models.radar import (
     Run,
     WarmSignal,
 )
-from app.models.reports import Report
+from app.models.reports import Report, ReportShare
 from app.models.territorio import (
     InegiAgeb,
     InegiManzana,
@@ -53,6 +53,7 @@ __all__ = [
     "Proposal",
     "Provider",
     "Report",
+    "ReportShare",
     "Run",
     "UserInvestigation",
     "WarmSignal",

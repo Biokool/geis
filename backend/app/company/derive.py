@@ -33,8 +33,17 @@ _PISTAS_CLIMA = ("climatizacion", "clima", "koolkat")
 
 
 def _limpiar_scian(valor: object) -> str:
+    """Normaliza un SCIAN sugerido: deja solo el código de 6 dígitos.
+
+    Los perfiles suelen escribirlo como ``531112 — naves industriales
+    (…)``; sin este recorte el campo SCIAN del dashboard llegaba con la
+    etiqueta completa y el análisis respondía 422.
+    """
     s = str(valor or "").strip().strip('"').strip("'")
-    return "" if es_faltante(s) or s.lower() == "n/a" else s
+    if es_faltante(s) or s.lower() == "n/a":
+        return ""
+    m = re.search(r"\b(\d{6})\b", s)
+    return m.group(1) if m else s
 
 
 def _es_climatizacion(vertical_id: str) -> bool:

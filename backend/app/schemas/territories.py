@@ -18,4 +18,14 @@ class GeocodeResponse(BaseModel):
     label: str
     stub: bool = False
     nota: str | None = None
+    # --- Geocoding real (Sección 1) ---
+    fuente: str | None = Field(
+        default=None,
+        description="coordenadas | link_maps | nominatim",
+    )
+    direccion_formateada: str | None = None
+    colonia: str | None = None
+    municipio: str | None = None
+    entidad: str | None = None
+    cp: str | None = None
     lineage: Lineage

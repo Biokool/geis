@@ -20,6 +20,7 @@
         "options": {}
       },
       "id": "27930a7d-2e2b-4e2c-b24c-0a53b572093c",
+      "webhookId": "afb2dfdb-6268-46e0-b9ab-36107acc892e",
       "name": "Webhook radar-04",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,

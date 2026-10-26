@@ -28,6 +28,9 @@ flowchart LR
     SCR --> OM[Open-Meteo · Google Maps]
     API --> RD
     API --> DB
+    API -- "geocoding / reverse" --> NOM[Nominatim · OSM]
+    API -- "isócronas" --> VAL[Valhalla · OSM]
+    API -- "vialidades" --> OVP[Overpass · OSM]
     WEB -- "/api/ → proxy" --> API
     CLOUD --> WEB
 ```
@@ -35,6 +38,7 @@ flowchart LR
 - **Red interna común**: `geis-net`. **Volúmenes persistentes**: `pgdata` (Postgres), `n8n_data` (credenciales/ejecuciones n8n), `signals/` (bind mount, entrada del paso 03).
 - `web` depende de `api` (healthy); `api` de `db` y `redis` (healthy). `n8n`/`scraper` solo arrancan con `--profile automation`; `cloudflared` con `tunnel`.
 - **Mismo origen**: el frontend consume rutas relativas `/api/…`; Nginx las proxya a `api:8000` (sin CORS en local).
+- **Dos secciones de producto** (ADR-008): 📍 **Ubicaciones** (análisis tipo Sabueso: `Analizar → Reporte → Mapa → Comparador → Historial → Aprende`) y 🎯 **Radar** (`Panel Radar → Operación → Leads → Mapa Radar → KPIs → Geofencing → Exportación`). Inicio y Sistema son comunes. Una sola SPA, una sola API.
 
 ## Capas
 
@@ -43,20 +47,45 @@ flowchart LR
 - Imagen `postgis/postgis:16-3.5` (upgrade desde 15-3.4; ver [ADR-001](decisions/ADR-001-postgis-16-35.md)).
 - Extensiones (`db/init.sql`, corre una sola vez al crear el volumen): `postgis`, `pg_trgm`, `uuid-ossp`.
 - Esquemas separados por ciclo de vida:
-  - `prod.*` — verdad operativa: `leads`, `runs`, `providers`, `warm_signals`, `linkedin_stats`, `denue_establishments`, `user_investigations`, territorios/reportes/propuestas (GEIS).
+  - `prod.*` — verdad operativa: `leads` (con geografía derivada: `entidad/municipio/colonia/cp/scian`), `runs`, `providers`, `warm_signals`, `linkedin_stats`, `denue_establishments`, `user_investigations` (con `es_principal`), `report_shares`, territorios/reportes/propuestas (GEIS).
   - `stg.*` — landing crudo: `leads_raw` (salida del scrapeo, con flag `procesado`).
   - `quarantine.*` — registros rechazados por validación.
-- Las **tablas** las crea **Alembic** (`make migrate`), no `init.sql`.
+- Las **tablas** las crea **Alembic** (`make migrate`), no `init.sql`. Cadena vigente: `0001 → … → 0004 → 0005 (geo leads) → 0006 (shares + es_principal)`.
 
 ### 2. Capa de API (FastAPI)
 
 - Entrada `backend/app/main.py`, routers en `backend/app/api/v1/` (16 routers; detalle en [api/rest.md](api/rest.md)).
 - Patrones clave:
-  - **Paginación por cursor** en `/leads` y `/leads/curados`: `limit` (máx. **100**, `FastAPI Query(le=100)`) + `cursor`/`next_cursor`. No devuelven `total` — contar exige iterar.
+  - **Paginación por cursor** en `/leads` y `/leads/curados`: `limit` (máx. **100**, `FastAPI Query(le=100)`) + `cursor`/`next_cursor`. Para el total exacto existe **`GET /leads/count`** (filtros etapa/línea/source/geo); ya no hace falta iterar el cursor para contar.
+  - **Filtros geográficos** `entidad/municipio/colonia/cp/scian` en `/leads`, `/leads/curados` y `/leads/count`; valores con cascada en `GET /catalogs/geo-filters`. Los campos se derivan con `POST /leads/enrich-geo` (migración 0005).
+  - **Geocoding real** (`POST /territories/geocode`): coordenadas, links de Maps (largos/cortos) o dirección con Nominatim/OSM; **422 si no resuelve** (nunca un punto por defecto).
   - **Gating por orden** en `POST /pipelines/run/{stage}`: `409` si el paso anterior no terminó OK (el pipeline se lee de `prod.runs`).
   - **Capa de providers**: cada capacidad (`scraper`, `enrichment`, `crm`, `email`, `weather`, `linkedin`, `geocoding`, `routing`) tiene fila en `prod.providers` con `mode` local/cloud/disabled; el backend resuelve la ruta según modo.
   - **Modelo estricto Pydantic**: `RunOut` exige `detalle` como `dict` — arrays o `NULL` en `prod.runs.detalle` provocan `500` (ver [ADR-005](decisions/ADR-005-gobernanza-prod-runs-detalle.md)).
 - Montaje en vivo: `./backend` → `/code` (cambios sin rebuild; `docker compose restart api`).
+
+#### Reporte de ubicación (Sección 1)
+
+```
+POST /reports
+  → compute_location_analysis (ISM, Huff, TAM, anillos)
+  → build_report_context (app/reports/context.py)
+       ├── INEGI: población/segmentos/hogares/PEA/NSE (AGEB por radio)
+       ├── DENUE: entorno de 9 categorías, competencia con distancia, atractores, anclas
+       ├── Valhalla: isócronas 5/10/15 min (si falla → radios declarados)
+       ├── Overpass: vialidades principales (si falla → [] honesto)
+       └── fichas sectoriales + editorial cacheado (knowledge_facts)
+  → build_location_report (24 claves de payload)
+  → persistencia en prod.reports
+GET /reports/{id}                      → JSON completo
+POST /reports/{id}/share               → token en prod.report_shares
+GET /reports/shared/{token}            → público solo lectura (404 si expiró/revocado)
+DELETE /reports/{id}/share/{token}     → revoca (204)
+```
+
+El efecto ancla (`analytics/anclas.py`) multiplica la atractividad en Huff por
+`1 + Σ w_a`; los proxies de movilidad (`analytics/movilidad.py`) siempre salen
+con `estimado: true` y método declarado.
 
 ### 3. Capa de orquestación (n8n)
 
@@ -89,8 +118,11 @@ Leer signals/input.json (Read Binary File)
 ### 4. Capa de presentación (React SPA)
 
 - Stack: React 18.3, react-router-dom 6, Vite 5.4, TypeScript 5.5, Tailwind 3.4, Radix UI (shadcn), TanStack Table 8, **ECharts 5.5**, **Leaflet 1.9 + react-leaflet 4.2 + geoman 2.17**, zustand 4, sonner.
-- Páginas: `Inicio` (dashboard de KPIs), `Mapa`, `Kpis`, `Leads`, `LeadsRadar`, `Operacion`, `Historial`, `Sistema` (providers/integraciones), `Configuracion` (perfil empresa), `Asistente IA`, `Exportacion`, `Geofencing`, `Reporte`, `Analisis`, `Territorios`.
-- Cliente API central: `frontend/src/lib/api.ts` (interfaces TS espejo de los modelos Pydantic, p. ej. `LeadCurado`).
+- **Shell:** `AppLayout` + `Sidebar` con selector de sección persistente (`localStorage: geis:seccion`). Rutas sin chrome: `/reporte/:id/imprimir` (imprimible) y `/r/:token` (compartido público).
+- **Sección 1 · Ubicaciones:** `Analizar` (giro + dirección/link → pin arrastrable → reporte), `Reporte` (mapas Leaflet de anillos/atractores/isócronas, dona ECharts, acordeones, calculadoras, WhatsApp/PDF/invitado), `Mapa`, `Comparador` (2–6, ganadora persistente), `Historial`, `Aprende`.
+- **Sección 2 · Radar:** `PanelRadar` (4 alertas/KPIs/gráficas), `Operacion` (5 etapas + gating, providers, LinkedIn, clima, enrich-geo), `Leads` (filtros geo, drawer «Cómo contactarlo», `whyLinea`), `Mapa` con `?modo=radar`, `Kpis`, `Geofencing`, `Exportacion`.
+- **Comunes:** `Inicio` (centro de mando), `Sistema` (salud/providers/workflows), `Configuracion`, `Asistente`.
+- Cliente API central: `frontend/src/lib/api.ts` + `apiGeo.ts` (helpers geo, `normPhone`, `normWeb`, `whyLinea`); interfaces TS espejo de los modelos Pydantic.
 - Mapa: herramientas de dibujo geoman y `ZoomControl` en `topright` (la leyenda "Capas" vive en `topleft`, `z-[500]` — por eso se movieron los controles).
 
 ### 5. Capa de scraping (scraper)
@@ -127,12 +159,16 @@ sequenceDiagram
 | `prod.runs.detalle` como array/NULL → 500 en `/pipelines/runs` | ADR-005: siempre `dict` (JSONB objeto) |
 | BOM en JSON leídos por n8n (`Unexpected token '~'`) | Escribir UTF-8 **sin BOM**; nodo `Parsear JSON` intermedio |
 | Code nodes devolviendo arrays crudos → "A 'json' property isn't an object" | ADR-003: return `{ json: {...} }` |
-| `limit > 100` en `/leads*` → 422 | ADR-004: el frontend pide ≤100 y pagina por cursor |
+| `limit > 100` en `/leads*` → 422 | ADR-004: el frontend pide ≤100 y pagina por cursor; para contar usa `/leads/count` |
 | Browser cache con bundle viejo → 404 `/api/runs/activos` | Hard refresh; no es código actual |
 | LinkedIn token expira | `expires_at` guardado en provider; re-OAuth manual |
+| Nominatim no resuelve una dirección | 422 con mensaje accionable; nunca se devuelve un punto por defecto |
+| Overpass a capacidad (502) o Valhalla caído | El reporte sale sin vialidades o con `alcance_tipo="radios"`; el método se declara, no se inventan datos |
+| Links de invitado con datos sensibles | Token opaco, expiración ≤365 días y revocación inmediata (`DELETE …/share/{token}`) |
 
 ## Antipatrones a evitar
 
-- No escribir en `backend/app` ni `frontend/src` **sin autorización explícita** del owner (regla `AGENTS.md`; ver [conventions.md](conventions.md)).
+- No escribir en `backend/app` ni `frontend/src` **sin autorización explícita** del owner (regla `AGENTS.md`; ver [conventions.md](conventions.md) y excepciones ADR-004 y ADR-008).
 - No usar booleanos en `ssl` de credenciales Postgres de n8n (Postgres node v2.6 exige string `"disable"`).
+- No inventar datos cuando una fuente externa falla: vacío/`null` + método declarado (geocoding → 422; movilidad → `estimado: true`; isócronas → radios).
 - No commitear `.env`, backups SQL ni `signals/input.json`.

@@ -2,6 +2,80 @@
 
 > Registro cronológico del trabajo real sobre el repositorio. Reconstruido el 2026-10-21 desde la bitácora de las sesiones de integración (previo a la adopción de git). Formato: fecha + categorías.
 
+## [2026-10-26] — Validación funcional E2E completa: cadena real, rama warm del 03 y filtros geo operativos
+
+> Recorrido función por función contra el stack real, corrigiendo los bugs
+> encontrados por el camino. Detalle y aprendizajes en `sessions/2026-10-26.md`.
+
+### Fixed
+- **`geis-api` sin mounts de `docs/` y `n8n/`** → 2 failed + 3 errors de tests por `FileNotFoundError`; añadidos `./docs:/docs:ro` y `./n8n:/n8n:ro`.
+- **Webhooks n8n muertos:** `webhookId` UUID faltante en los 5 nodos Webhook → `POST /webhook/radar-0X` ahora 200 `{"message":"Workflow was started"}`.
+- **Cron 02 inválido** (`0 30 6 * * 1` → `WorkflowActivationError`) → `30 6 * * 1`.
+- **Run atascado radar-03:** un nodo Postgres con 0 items se salta y la cadena moría sin callback. `Armar warm` emite marcador `skip` cuando no hay señales y los SQL de upsert llevan guardas `AND {{ $json.skip ? 'false' : 'true' }}`. Run 27 marcado `error` con motivo (bitácora append-only).
+- **SCIAN rechazado en Analizar:** `resolver_scian` (analysis/derive) acepta SCIAN con descripción de giro.
+- **500 en Analizar con giro de texto libre** ([ADR-010]): `context.py` consultaba `prod.knowledge_facts`, tabla que vive en `public` (migración 0003, compatibilidad SQLite); el `except` tragaba el error sin rollback → `InFailedSqlTransaction` → el 500 estallaba después en el commit del reporte. Fix: SQL sin esquema + `safe_rollback(db)` en los 7 `except` SQL de la ruta (context, `_common`, `analysis`, reports, leads).
+
+### Added
+- **[ADR-009] Fallback geo desde la dirección formateada** (`leads.py::_parsear_direccion_geo`): AGEB → DENUE → texto, solo rellena NULL. Formato Google MX («Calle, Colonia, 76000 Municipio, Qro.»); abreviaturas de las 32 entidades normalizadas; `México` a secas = país, nunca entidad; la calle jamás se toma como colonia. Excepción acotada a AGENTS.md.
+- **[ADR-010] `safe_rollback(db)`** (`app/db/session.py`): todo `except` que traga un error SQL limpia la sesión (best-effort, tolerante a fakes de tests) — fin del patrón causa-1.ª/estallido-2.º. +2 tests de regresión.
+
+### Verified
+- **`pytest` 139/139** (+2 del parser geo, +2 de regresión ADR-010).
+- **E2E del fix ADR-010:** giro que causaba el 500 → **201** `verdict:"AVANZAR"` (14 secciones); auto-aprendizaje en `public.knowledge_facts` (`report_insight:58f308bd`); 2.º POST → 201; `GET /reports/{id}` → 200.
+- **Sweep de API:** 15 GETs 200; CRUD reports/investigations/proposals/share/export; 422 legítimos documentados (`{}` en reports/signals, compare sin `scian`/`giro`).
+- **Cadena 01→05 en verde con scrape real de Querétaro:** radar-01 (run 24, target Centro 76000, giros bodegas, ~3 min Playwright) → 18 leads nuevos; 25 (02), 29 (03 vacío), 28 (04), 26 (05).
+- **Señal warm real:** `POST /signals` → radar-03 run 30 ok; señal `procesada=true`; lead manual +25 creado.
+- **Filtros geo con datos reales:** `enrich-geo` `actualizados=158`; `entidad=Querétaro` → 82 leads; `+municipio` → 75; `+colonia=Centro` → 17; `cp=76000` → 18; cascada `geo-filters` poblada.
+- **`b2b-prospecting` y `lookalike`** con datos reales (Condesa CDMX): 200 con scores y ranking de similitud AGEB.
+
+### Notes
+- `pendientes=176` tras el enrich es casi todo `scian`: solo DENUE cercano (≤500 m, 40 establecimientos) puede darlo — crecer DENUE o mapear giro→SCIAN queda en backlog.
+- `n8n update:workflow` deprecado en 2.35: usar `publish:workflow --id=<id>` y reiniciar n8n tras importar.
+- Working tree completo commiteado y empujado a `origin` (2 secciones, ADR-008/009/010, fixes de cadena, docs PKM).
+- Colonias atípicas del texto de Google (p. ej. «Lib. Norponiente Km 18-Bodega A5») aparecen tal cual en el catálogo — calidad limitada por la fuente.
+
+## [2026-10-25] — Integración local de las 2 secciones: migraciones, E2E real y rebuild
+
+> Cierre en la máquina del owner de lo que `REVISION-2-SECCIONES.md` dejó como
+> pendiente por no tener Docker: todo lo de abajo se ejecutó contra el PostGIS
+> real, n8n y los servicios externos (no fakes).
+
+### Verified
+- **`pytest` 135/135** dentro del contenedor `geis-api` (incluye `test_seccion1.py` 22 y `test_seccion2.py` 16).
+- **Migraciones 0004 → 0005 → 0006 aplicadas** (`alembic upgrade head`): 5 columnas geo + 6 índices en `prod.leads`, tabla `prod.report_shares` y `prod.user_investigations.es_principal`.
+- **`POST /leads/enrich-geo` real** (160 leads): `actualizados=144`, `con_geometria=158`, `sin_datos=2`; CP derivado en 144 leads. Entidad/municipio solo en 1 porque el seed trae **4 AGEB** (cobertura real pendiente del ETL censal completo).
+- **Geocoding real**: link de Maps (`@lat,lon`) → `fuente=link_maps`; dirección en texto → Nominatim → `fuente=nominatim` con CP 06700. Sin punto por defecto.
+- **Reporte real** (Roma Norte, SCIAN 722515): 201, veredicto **AVANZAR**, 24 claves de payload; 15 atractores, 15 competidores, 9 categorías de entorno, 3 isócronas **reales de Valhalla** (5/10/15 min) con población y competidores, NSE alto, delivery y break-even.
+- **Compartir**: `POST /reports/{id}/share` → 201, lectura pública → 200, revocación → 204, lectura posterior → **404**.
+- **Comparador** (`POST /analysis/compare`, 2 puntos directos) y **CRUD de investigaciones** (`POST` → `PATCH es_principal` → `DELETE` 204 → `GET` 404) contra la BD real.
+- **Frontend rebuild** (`docker compose build web` + `up -d web`): bundle `index-BdB0KMtG.js`; `/analizar`, `/panel-radar`, `/reporte/{id}/imprimir` y `/r/{token}` responden 200 por el fallback SPA.
+
+### Notes
+- Overpass respondió **502 (servidor a capacidad)** durante la prueba: el conector devuelve `[]` y el reporte sale sin vialidades (no inventa vías); el proxy vehicular cae a su basal poblacional.
+- El endpoint `POST /leads/enrich-geo` es idempotente (`COALESCE`): reejecutar no pisa campos ya llenados.
+- Docs actualizadas en esta sesión: README, `GUIA-DE-INICIO`, `ARQUITECTURA-2-SECCIONES`, `api/rest`, `architecture`, `inventory`, `environment`, `project-state`, `backlog`, `working-memory`, `sessions/2026-10-25.md`, ADR-008.
+
+## [2026-10-21 (noche)] — Reestructuración en 2 secciones: Ubicaciones + Radar
+
+> Encargo: partir el producto en dos secciones reales (Sabueso IA / Biokool
+> Radar) con «más funciones y menos clicks». Diseño y trazabilidad en
+> `ARQUITECTURA-2-SECCIONES.md` (normativo), `INVENTARIO-SABUESO.md` (53
+> funciones), `INVENTARIO-RADAR.md` (102 + R1–R17) y `REVISION-2-SECCIONES.md`
+> (validación). Baseline: 97 tests.
+
+### Added
+- **Sección 1 · Ubicaciones — backend:** geocoding real (`app/geo/geocoding.py`: parser de links de Maps, links cortos, Nominatim search/reverse; 422 en vez de punto falso), contexto completo del reporte (`app/reports/context.py`: población/segmentos/hogares/PEA/NSE, entorno de 9 categorías, competencia con anillos y «PARECE ACTIVO», atractores, isócronas y vialidades), conectores `overpass.py` (vialidades) y `valhalla.py` (isócronas con fallback honesto a radios), analítica `anclas.py` (efecto ancla en Huff), `categorias.py` (9 rangos SCIAN), `movilidad.py` (proxies §3.10 siempre `estimado`) y `sector_data.py` (fichas de 15 giros, TAM editable, break-even).
+- **Sección 1 — API:** `POST /analysis/compare` (2–6 items: investigaciones o puntos directos), `DELETE`/`PATCH /investigations/{id}`, `POST /reports/{id}/share` + `GET /reports/shared/{token}` + `DELETE /reports/{id}/share/{token}`, overrides TAM en `POST /reports`, geocode enriquecido (componentes + fuente).
+- **Sección 1 — frontend:** `Analizar` (giro + dirección/link → pin arrastrable → reporte en un clic), `Aprende`, `ReportePrint` (`/reporte/{id}/imprimir`, CSS print), `ReporteCompartido` (`/r/{token}`), Reporte con mapas Leaflet (anillos, atractores, isócronas), dona ECharts, acordeones, calculadoras de renta y punto de equilibrio, botones WhatsApp/PDF/link invitado.
+- **Sección 2 · Radar:** `PanelRadar` (4 alertas, 4 KPIs, 4 gráficas), Operación con las 5 etapas y gating, providers, LinkedIn y clima; filtros **entidad/municipio/colonia/CP/SCIAN** con cascada (`GET /catalogs/geo-filters`), `POST /leads/enrich-geo`, `GET /leads/count` y `?modo=radar` en el Mapa; migración **0005** (columnas geo) y **0006** (`report_shares`, `es_principal`).
+- **Navegación:** selector fijo **📍 Ubicaciones | 🎯 Radar** en el sidebar con persistencia (`localStorage: geis:seccion`); Inicio y grupo Sistema comunes.
+- **Tests:** `backend/tests/test_seccion1.py` (22) y `test_seccion2.py` (16) — total **135**.
+- **Docs normativas:** `INVENTARIO-SABUESO.md`, `INVENTARIO-RADAR.md`, `ARQUITECTURA-2-SECCIONES.md`, `REVISION-2-SECCIONES.md`.
+
+### Changed
+- `n8n/workflows/02-dedup-score.json`: nodo HTTP opcional de `enrich-geo` tras el scoring.
+- README y `GUIA-DE-INICIO.md`: el relato del producto pasa de 5 grupos a 2 secciones.
+
 ## [2026-10-21 (tarde)] — Revisión profunda: producto unificado
 
 > Encargo del owner (diagnóstico completo en `REVISION-PROFUNDA.md`): la fusión GEIS×Radar no contaba una historia ni mostraba un proceso; corrección orientada a **producto** ejecutada por asistente externo y verificada al integrar.

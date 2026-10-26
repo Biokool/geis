@@ -1,4 +1,5 @@
-{"id":"y3KcfTKXRZ5jJEDttOsIbZ",
+{
+  "id": "y3KcfTKXRZ5jJEDttOsIbZ",
   "name": "05 - Señales LinkedIn",
   "nodes": [
     {
@@ -18,7 +19,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "cronExpression": "0 8 * * 1"
+              "expression": "0 8 * * 1"
             }
           ]
         }
@@ -40,6 +41,7 @@
         "options": {}
       },
       "id": "af5c435f-c09b-4336-97c1-ad33295b394d",
+      "webhookId": "798ade17-f53a-4579-a579-477027d4339b",
       "name": "Webhook radar-05",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,

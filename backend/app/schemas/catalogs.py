@@ -21,6 +21,20 @@ class ScianListResponse(BaseModel):
     lineage: Lineage
 
 
+class GeoFiltersOut(BaseModel):
+    """Valores geográficos disponibles con cascada (GET /catalogs/geo-filters).
+
+    Fuentes: ``prod.leads`` (columnas derivadas de la migración 0005) y
+    ``prod.denue_establishments``. Sin nulos ni cadenas vacías, ordenados.
+    """
+
+    entidades: list[str]
+    municipios: list[str]
+    colonias: list[str]
+    cps: list[str]
+    scians: list[str]
+
+
 class EditionStatus(BaseModel):
     edition_id: int
     source_code: str

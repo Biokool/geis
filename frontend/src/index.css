@@ -70,3 +70,88 @@
   .font-mono, code, kbd, pre { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
   .leaflet-container { @apply z-0; }
 }
+
+/* =====================================================================
+   Mapas · pantalla completa
+   El contenedor que se amplía incluye mapas + filtros/capas/leyenda, por
+   lo que los filtros siguen visibles y usables al entrar en fullscreen.
+   ===================================================================== */
+.mapa-expandible {
+  position: relative;
+}
+.mapa-expandible:fullscreen {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  overflow: hidden;
+}
+/* En fullscreen el lienzo crece y los paneles laterales conservan scroll. */
+.mapa-expandible:fullscreen .mapa-lienzo {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 0;
+}
+.mapa-expandible:fullscreen .leaflet-container {
+  height: 100% !important;
+  width: 100%;
+}
+.mapa-expandible:fullscreen .mapa-panel {
+  max-height: 100vh;
+  overflow-y: auto;
+}
+/* Escritorio: mapa a la izquierda y filtros en columna lateral, igual que en
+   la vista normal; el mapa ocupa todo el alto disponible. */
+@media (min-width: 768px) {
+  .mapa-expandible:fullscreen {
+    flex-direction: row;
+  }
+  .mapa-expandible:fullscreen .mapa-panel {
+    width: 22rem;
+    max-width: 40vw;
+    border-top: 0;
+    border-left: 1px solid hsl(var(--border));
+  }
+}
+/* Móvil/tableta: el panel queda debajo del mapa, con scroll propio. */
+@media (max-width: 767px) {
+  .mapa-expandible:fullscreen .mapa-panel {
+    max-height: 45vh;
+  }
+}
+.mapa-expandible-btn {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsla(var(--card) / 0.96);
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.mapa-expandible-btn:hover {
+  background: hsl(var(--muted));
+}
+/* Abajo a la derecha: no choca con zoom ni con las herramientas de dibujo
+   (ambas viven arriba a la derecha dentro del mapa). */
+.mapa-expandible:fullscreen .mapa-expandible-btn {
+  left: auto;
+  right: 14px;
+  top: auto;
+  bottom: 14px;
+}
+@media (max-width: 640px) {
+  .mapa-expandible-btn-texto { display: none; }
+  .mapa-expandible-btn { padding: 8px 10px; }
+}

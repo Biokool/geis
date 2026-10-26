@@ -5,6 +5,7 @@ Usa las fórmulas reales del SRS §3 (ISM, Huff, TAM, IDT, score B2B).
 from __future__ import annotations
 
 import math
+import re
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,8 +26,10 @@ from app.analytics import (
     rango,
     tam,
 )
+from app.analytics.anclas import aplicar_efecto_ancla, detectar_anclas
+from app.analytics.sector_data import buscar_ficha
 from app.api.v1._common import lineage
-from app.db.session import get_db
+from app.db.session import get_db, safe_rollback
 from app.reports.builder import decidir_veredicto
 from app.models.investigations import UserInvestigation
 from app.schemas.analysis import (
@@ -67,16 +70,36 @@ def _punto_wkt(lat: float, lon: float) -> str:
 
 
 def resolver_scian(db: Session, giro: str | None, scian: str | None) -> tuple[str, str | None, list[str]]:
-    """Resuelve la clase SCIAN desde `scian` directo o desde `giro` en texto libre."""
+    """Resuelve la clase SCIAN desde `scian` directo o desde `giro` en texto libre.
+
+    Un SCIAN capturado a mano (editable en la UI) **no** se rechaza si no
+    está en ``prod.cat_scian``: se analiza con los parámetros neutros del
+    catálogo (atractivo 0.7, lambda 2.0) y se avisa en ``advertencias``.
+    Antes se respondía 422 y el flujo «2 campos + 1 clic» se rompía con
+    clases válidas del DENUE que aún no estaban en el catálogo semilla.
+    """
     advertencias: list[str] = []
     if scian:
+        codigo = str(scian).strip()
+        if not codigo.isdigit():
+            match = re.search(r"\b(\d{6})\b", codigo)
+            if match is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"SCIAN inválido: {scian!r} (debe incluir un código de 6 dígitos)",
+                )
+            codigo = match.group(1)
         existe = db.execute(
             text("SELECT description FROM prod.cat_scian WHERE scian_code = :s"),
-            {"s": scian},
+            {"s": codigo},
         ).first()
         if not existe:
-            raise HTTPException(status_code=422, detail=f"SCIAN {scian} no está en el catálogo")
-        return scian, giro, advertencias
+            advertencias.append(
+                f"SCIAN {codigo} no está en el catálogo semilla: se usa "
+                "atractivo 0.7 y lambda 2.0 por defecto. La competencia se "
+                "cuenta igual contra el DENUE (misma clase SCIAN)."
+            )
+        return codigo, giro or (str(existe[0]) if existe else None), advertencias
     if giro:
         fila = db.execute(
             text(
@@ -124,11 +147,47 @@ def demanda_pob_3059(db: Session, lat: float, lon: float, radio_m: int) -> tuple
     return round(area_km2 * 11000, 1), "fallback determinista (sin AGEB en la zona)"
 
 
+def _anclas_cercanas(db: Session, lat: float, lon: float) -> list[dict]:
+    """Negocios ancla cerca del punto (catálogo §3.12.3), o [] si falla.
+
+    Silencioso a propósito: sin DENUE accesible no hay efecto ancla y el
+    cálculo de Huff queda exactamente como antes.
+    """
+    try:
+        filas = db.execute(
+            text(
+                "/* anclas */ SELECT nombre, scian_code, "
+                "ST_Distance(geom::geography, "
+                "ST_GeomFromEWKT(:punto)::geography) AS distancia_m "
+                "FROM prod.denue_establishments "
+                "WHERE is_active AND ST_DWithin(geom::geography, "
+                "ST_GeomFromEWKT(:punto)::geography, 800) "
+                "ORDER BY distancia_m LIMIT 300"
+            ),
+            {"punto": _punto_wkt(lat, lon)},
+        ).all()
+    except Exception:
+        safe_rollback(db)
+        return []
+    return detectar_anclas([
+        {"nombre": f[0], "scian_code": f[1],
+         "distancia_m": float(f[2]) if f[2] is not None else None}
+        for f in filas
+    ])
+
+
 def compute_location_analysis(
     db: Session, giro: str | None, scian: str | None,
     lat: float, lon: float, radios: list[int],
+    tam_overrides: dict | None = None,
 ) -> dict:
-    """Núcleo del análisis de ubicación (reutilizado por el builder de reportes)."""
+    """Núcleo del análisis de ubicación (reutilizado por el builder de reportes).
+
+    Supuestos TAM: si el giro tiene ficha en el catálogo sectorial se usan
+    sus supuestos; ``tam_overrides`` (del request) gana sobre la ficha y
+    sobre el default. Efecto ancla (§3.12.3): la atractividad del punto se
+    multiplica por ``(1 + Σ w_a)`` con las anclas dentro de su radio.
+    """
     scian_code, giro_label, advertencias = resolver_scian(db, giro, scian)
 
     # Atractivo base y lambda del catálogo (HUFF-01).
@@ -154,6 +213,24 @@ def compute_location_analysis(
     # TAM con el radio mayor (TAM-02: siempre con rango).
     demanda_tam = anillos[-1]["demanda_pob_30_59"] if anillos else 0.0
     sup = dict(TAM_SUPUESTOS_DEFAULT)
+    ficha = buscar_ficha(giro_label)
+    if ficha:
+        sup = {
+            "gasto_pc_mxn_anual": ficha["tam_supuestos"]["gasto_pc_mxn_anual"],
+            "f_nse": ficha["tam_supuestos"]["f_nse"],
+            "f_pen": ficha["tam_supuestos"]["f_pen"],
+            "fuente": ficha["tam_supuestos"]["fuente"],
+        }
+    if tam_overrides:
+        if tam_overrides.get("gasto_promedio_mensual"):
+            sup["gasto_pc_mxn_anual"] = float(tam_overrides["gasto_promedio_mensual"]) * 12
+            sup["fuente"] = "override del usuario sobre el supuesto TAM"
+        if tam_overrides.get("f_nse") is not None:
+            sup["f_nse"] = float(tam_overrides["f_nse"])
+            sup["fuente"] = "override del usuario sobre el supuesto TAM"
+        if tam_overrides.get("f_pen") is not None:
+            sup["f_pen"] = float(tam_overrides["f_pen"])
+            sup["fuente"] = "override del usuario sobre el supuesto TAM"
     valor_tam = tam(demanda_tam, sup["gasto_pc_mxn_anual"], sup["f_nse"], sup["f_pen"])
     rango_tam = rango(valor_tam)
 
@@ -170,10 +247,22 @@ def compute_location_analysis(
         ),
         {"scian": scian_code, "punto": _punto_wkt(lat, lon), "radio": max(radios) if radios else 2000},
     ).all()
+    # Efecto ancla (§3.12.3): A' = A × (1 + Σ w_a). Sin anclas detectadas
+    # el atractivo no cambia (comportamiento histórico intacto).
+    anclas = _anclas_cercanas(db, lat, lon)
+    atractivo_efectivo = aplicar_efecto_ancla(atractivo_candidato, anclas)
+    if anclas:
+        advertencias.append(
+            f"Efecto ancla aplicado en Huff: {len(anclas)} ancla(s) "
+            f"cercana(s), atractividad ×{atractivo_efectivo / atractivo_candidato:.2f}"
+            if atractivo_candidato else
+            f"Efecto ancla: {len(anclas)} ancla(s) cercana(s) detectada(s)"
+        )
+
     dist_candidato_km = 0.2  # consumidor representativo a 200 m del punto
     competidores = [(float(a or 0.5), max(float(dm) / 1000.0, 0.05)) for a, dm in comp]
-    cuota = p_ij(atractivo_candidato, dist_candidato_km, competidores, alpha=1.0, lambda_=lambda_giro)
-    cuota_rango = p_ij_rango(atractivo_candidato, dist_candidato_km, competidores, alpha=1.0, lambda_=lambda_giro)
+    cuota = p_ij(atractivo_efectivo, dist_candidato_km, competidores, alpha=1.0, lambda_=lambda_giro)
+    cuota_rango = p_ij_rango(atractivo_efectivo, dist_candidato_km, competidores, alpha=1.0, lambda_=lambda_giro)
     captura_mxn = captura(valor_tam, cuota)
 
     veredicto, confianza, factores = decidir_veredicto(anillos)
@@ -191,7 +280,13 @@ def compute_location_analysis(
             "alpha": 1.0, "lambda": lambda_giro,
             "captura_mxn_anual": round(captura_mxn, 2),
             "n_competidores_modelo": len(competidores),
+            "atractivo_base": atractivo_candidato,
+            "atractivo_efectivo": round(atractivo_efectivo, 4),
+            "multiplicador_ancla": round(
+                atractivo_efectivo / atractivo_candidato, 4
+            ) if atractivo_candidato else 1.0,
         },
+        "anclas": anclas,
         "veredicto": veredicto, "confianza": confianza, "factores": factores,
         "advertencias": advertencias,
     }
@@ -200,7 +295,16 @@ def compute_location_analysis(
 @router.post("/location", response_model=LocationAnalysisResponse)
 def location_analysis(body: LocationAnalysisRequest, db: Session = Depends(get_db)):
     """Análisis de viabilidad de ubicación (CU-2): ISM por anillo, TAM y Huff."""
-    r = compute_location_analysis(db, body.giro, body.scian, body.lat, body.lon, body.radios)
+    overrides = {
+        k: v for k, v in {
+            "gasto_promedio_mensual": body.gasto_promedio_mensual,
+            "f_nse": body.f_nse, "f_pen": body.f_pen,
+        }.items() if v is not None
+    }
+    r = compute_location_analysis(
+        db, body.giro, body.scian, body.lat, body.lon, body.radios,
+        tam_overrides=overrides or None,
+    )
     return LocationAnalysisResponse(
         giro=r["giro"], scian=r["scian"], lat=r["lat"], lon=r["lon"],
         anillos=[RingResult(**a) for a in r["anillos"]],
@@ -211,57 +315,108 @@ def location_analysis(body: LocationAnalysisRequest, db: Session = Depends(get_d
     )
 
 
+def _item_desde_resultado(
+    id_: str, nombre: str, territorio: str,
+    lat: float, lon: float, resultado: dict,
+) -> CompareItem:
+    """CompareItem desde un resultado de compute_location_analysis."""
+    anillos = resultado.get("anillos") or []
+    anillo_mayor = anillos[-1] if anillos else {}
+    return CompareItem(
+        id=id_, nombre=nombre, territorio=territorio,
+        center_lat=lat, center_lon=lon,
+        veredicto=resultado["veredicto"],
+        ism=float(anillo_mayor.get("ism", 0.0)),
+        competencia=int(anillo_mayor.get("competencia", 0)),
+        poblacion=float(anillo_mayor.get("demanda_pob_30_59", 0.0)),
+        tam=float(resultado["tam_mxn"]),
+        huff_score=float(resultado["huff"]["cuota_punto"]),
+    )
+
+
+def _item_investigacion(db: Session, investigation_id) -> CompareItem:
+    """CompareItem recalculando el análisis de una investigación guardada."""
+    inv = db.get(UserInvestigation, investigation_id)
+    if inv is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Investigación {investigation_id} no encontrada",
+        )
+    if inv.center_lat is None or inv.center_lon is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"La investigación {investigation_id} "
+                f"('{getattr(inv, 'title', '')}') no tiene centro "
+                "(center_lat/center_lon) para comparar"
+            ),
+        )
+    params = inv.params or {}
+    resultado = compute_location_analysis(
+        db,
+        giro=params.get("giro"),
+        scian=params.get("scian"),
+        lat=float(inv.center_lat),
+        lon=float(inv.center_lon),
+        radios=list(inv.radii_m) if inv.radii_m else [1000, 2000],
+    )
+    return _item_desde_resultado(
+        str(getattr(inv, "investigation_id", investigation_id)),
+        inv.title, inv.territory_kind,
+        float(inv.center_lat), float(inv.center_lon), resultado,
+    )
+
+
 @router.post("/compare", response_model=CompareResponse)
 def comparar_investigaciones(body: CompareRequest, db: Session = Depends(get_db)):
-    """Compara de 2 a 5 investigaciones recalculando su análisis de ubicación.
+    """Compara ubicaciones recalculando su análisis (ISM/TAM/Huff).
 
-    Por cada investigación se reutiliza ``compute_location_analysis`` con el
-    giro/SCIAN guardados en ``params`` y los radios guardados en ``radii_m``
-    (o [1000, 2000] si no hay). El resumen de cada item toma ISM, competencia
-    y población del anillo de mayor radio.
+    Formas de entrada (ver ``CompareRequest``):
+
+    - ``items`` (nueva, 2 a 6): investigaciones por ``investigation_id``
+      y/o **puntos directos** ``{lat, lon, giro?, scian?, etiqueta?}`` que
+      se calculan con el motor sin persistir investigación.
+    - ``investigation_ids`` (legacy, 2 a 5): solo investigaciones.
+
+    El resumen de cada item toma ISM, competencia y población del anillo
+    de mayor radio.
     """
     items: list[CompareItem] = []
-    for investigation_id in body.investigation_ids:
-        inv = db.get(UserInvestigation, investigation_id)
-        if inv is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Investigación {investigation_id} no encontrada",
+    if body.items:
+        for entrada in body.items:
+            if entrada.investigation_id is not None:
+                items.append(_item_investigacion(db, entrada.investigation_id))
+                continue
+            if entrada.lat is None or entrada.lon is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Cada item del comparador necesita "
+                           "investigation_id o {lat, lon}",
+                )
+            resultado = compute_location_analysis(
+                db,
+                giro=entrada.giro,
+                scian=entrada.scian,
+                lat=float(entrada.lat),
+                lon=float(entrada.lon),
+                radios=[1000, 2000],
             )
-        if inv.center_lat is None or inv.center_lon is None:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"La investigación {investigation_id} "
-                    f"('{getattr(inv, 'title', '')}') no tiene centro "
-                    "(center_lat/center_lon) para comparar"
-                ),
-            )
-        params = inv.params or {}
-        resultado = compute_location_analysis(
-            db,
-            giro=params.get("giro"),
-            scian=params.get("scian"),
-            lat=float(inv.center_lat),
-            lon=float(inv.center_lon),
-            radios=list(inv.radii_m) if inv.radii_m else [1000, 2000],
-        )
-        anillos = resultado.get("anillos") or []
-        anillo_mayor = anillos[-1] if anillos else {}
-        items.append(CompareItem(
-            id=str(getattr(inv, "investigation_id", investigation_id)),
-            nombre=inv.title,
-            territorio=inv.territory_kind,
-            center_lat=float(inv.center_lat),
-            center_lon=float(inv.center_lon),
-            veredicto=resultado["veredicto"],
-            ism=float(anillo_mayor.get("ism", 0.0)),
-            competencia=int(anillo_mayor.get("competencia", 0)),
-            poblacion=float(anillo_mayor.get("demanda_pob_30_59", 0.0)),
-            tam=float(resultado["tam_mxn"]),
-            huff_score=float(resultado["huff"]["cuota_punto"]),
-        ))
-    return CompareResponse(items=items, lineage=lineage(db))
+            items.append(_item_desde_resultado(
+                f"punto:{entrada.lat:.5f},{entrada.lon:.5f}",
+                entrada.etiqueta or entrada.giro
+                or f"Punto {entrada.lat:.5f}, {entrada.lon:.5f}",
+                "punto_directo",
+                float(entrada.lat), float(entrada.lon), resultado,
+            ))
+        return CompareResponse(items=items, lineage=lineage(db))
+    if body.investigation_ids:
+        for investigation_id in body.investigation_ids:
+            items.append(_item_investigacion(db, investigation_id))
+        return CompareResponse(items=items, lineage=lineage(db))
+    raise HTTPException(
+        status_code=422,
+        detail="Se requiere `items` (2 a 6) o `investigation_ids` (2 a 5)",
+    )
 
 
 # ------------------------------------------------------------------ B2B ----

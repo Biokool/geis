@@ -22,3 +22,17 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def safe_rollback(db) -> None:
+    """Limpia la sesión tras un error SQL que el flujo decide tragarse.
+
+    Sin esto, la sentencia fallida deja la transacción abortada y TODA
+    sentencia posterior del request muere con el error secundario
+    (psycopg2 ``InFailedSqlTransaction``) en lugar del error real.
+    Best-effort: los fakes de tests no implementan ``rollback()``.
+    """
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001 — limpiar no debe romper el flujo
+        pass

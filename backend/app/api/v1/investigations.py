@@ -7,7 +7,11 @@ from sqlalchemy.orm import Session
 from app.api.v1._common import lineage
 from app.db.session import get_db
 from app.models.investigations import UserInvestigation
-from app.schemas.investigations import InvestigationCreate, InvestigationOut
+from app.schemas.investigations import (
+    InvestigationCreate,
+    InvestigationOut,
+    InvestigationPatch,
+)
 
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 
@@ -63,6 +67,40 @@ def leer_investigacion(investigation_id: UUID, db: Session = Depends(get_db)):
     return _to_out(inv, db)
 
 
+@router.patch("/{investigation_id}", response_model=InvestigationOut)
+def actualizar_investigacion(
+    investigation_id: UUID, body: InvestigationPatch,
+    db: Session = Depends(get_db),
+):
+    """Actualización parcial: título y ganadora persistente del comparador.
+
+    Al poner ``es_principal: true`` se desmarcan las demás investigaciones
+    del mismo usuario (solo puede haber una principal por usuario).
+    """
+    inv = db.get(UserInvestigation, investigation_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigación no encontrada")
+    if body.title is not None:
+        inv.title = body.title
+    if body.es_principal is not None:
+        inv.es_principal = bool(body.es_principal)
+        if body.es_principal:
+            otras = (
+                db.query(UserInvestigation)
+                .filter(UserInvestigation.user_id == inv.user_id)
+                .all()
+            )
+            for otra in otras:
+                if otra is not inv and getattr(otra, "investigation_id", None) != investigation_id:
+                    otra.es_principal = False
+    db.commit()
+    try:
+        db.refresh(inv)
+    except Exception:
+        pass
+    return _to_out(inv, db)
+
+
 @router.delete("/{investigation_id}", status_code=204)
 def eliminar_investigacion(investigation_id: UUID, db: Session = Depends(get_db)):
     """Elimina físicamente una investigación (204 sin cuerpo).
@@ -86,6 +124,8 @@ def _to_out(inv: UserInvestigation, db: Session) -> InvestigationOut:
         territory_kind=inv.territory_kind, center_lat=float(inv.center_lat) if inv.center_lat else None,
         center_lon=float(inv.center_lon) if inv.center_lon else None,
         radii_m=inv.radii_m, params=inv.params or {}, scores=inv.scores,
-        verdict=inv.verdict, status=inv.status, created_at=inv.created_at,
+        verdict=inv.verdict, status=inv.status,
+        es_principal=bool(getattr(inv, "es_principal", False)),
+        created_at=inv.created_at,
         lineage=lineage(db),
     )

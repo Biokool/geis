@@ -174,6 +174,9 @@ def build_location_report(ctx: dict) -> dict:
                 for a in anillos
             ],
             "lista": ctx.get("competencia_lista", []),
+            # Diferencial del anillo exterior (p. ej. 1–2 km): conteo
+            # ≤radio mayor menos conteo ≤radio menor (reporte Sabueso §6).
+            "anillo_exterior": ctx.get("competencia_anillo_1_2_km"),
         },
         # ── 6. Mapas (descriptores de capas) ───────────────────────────
         "mapas": {
@@ -205,6 +208,8 @@ def build_location_report(ctx: dict) -> dict:
         # ── 10. Área de alcance por tiempo ─────────────────────────────
         "area_alcance_tiempo": {
             "isocronas": ctx.get("isocronas", []),
+            # Honestidad: sin polígonos reales el alcance son radios.
+            "alcance_tipo": ctx.get("alcance_tipo", "radios"),
             "como_usarla": "Cada isócrona delimita la población alcanzable en ese tiempo de viaje.",
         },
         # ── 11. Modelos ────────────────────────────────────────────────
@@ -236,6 +241,9 @@ def build_location_report(ctx: dict) -> dict:
         # ── 12. Fuentes y datos ────────────────────────────────────────
         "fuentes_datos": {
             "ediciones": ctx.get("ediciones", []),
+            # Lista nominal estilo Sabueso: fuente + rol, solo de las
+            # fuentes efectivamente usadas en este reporte.
+            "fuentes": ctx.get("fuentes", []),
             "fecha_calculo": ahora,
             "model_version": ctx.get("model_version", "1.0.0"),
         },
@@ -250,4 +258,20 @@ def build_location_report(ctx: dict) -> dict:
             ctx.get("giro"), ctx.get("temp_zona"), ctx.get("mes")
         ),
     }
+    # ── Bloques de la Sección 1 (Sabueso) presentes solo si el contexto
+    # los calculó: datos sectoriales del giro, bloque de delivery,
+    # plantilla de punto de equilibrio y negocios ancla (§3.12).
+    if ctx.get("sector") is not None:
+        payload["datos_sector"] = ctx["sector"]
+    if ctx.get("delivery") is not None:
+        payload["delivery"] = ctx["delivery"]
+    if ctx.get("break_even") is not None:
+        payload["punto_equilibrio"] = ctx["break_even"]
+    if ctx.get("anclas") is not None:
+        payload["negocios_ancla"] = {
+            "nota": "Un negocio ancla trae afluencia constante a su "
+                    "entorno (ANC-01); su efecto multiplica la "
+                    "atractividad en Huff: A' = A × (1 + Σ w_a).",
+            "items": ctx["anclas"],
+        }
     return payload

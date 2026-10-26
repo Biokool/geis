@@ -12,6 +12,10 @@ class LocationAnalysisRequest(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
     radios: list[int] = Field(default=[1000, 2000], description="Radios de análisis en metros")
+    # Overrides opcionales de supuestos TAM (ganan sobre ficha y default).
+    gasto_promedio_mensual: float | None = Field(default=None, gt=0)
+    f_nse: float | None = Field(default=None, gt=0)
+    f_pen: float | None = Field(default=None, gt=0, le=1)
 
 
 class RingResult(BaseModel):
@@ -84,13 +88,42 @@ class LookalikeResponse(BaseModel):
 
 
 # ------------------------------------------------------------ comparación --
-class CompareRequest(BaseModel):
-    """Comparación de investigaciones: entre 2 y 5 ids."""
+class CompareInputItem(BaseModel):
+    """Un elemento a comparar: investigación existente o punto directo.
 
-    investigation_ids: list[UUID] = Field(
+    Punto directo: ``{lat, lon, giro?, scian?, etiqueta?}`` — se calcula
+    con el motor de análisis sin persistir investigación.
+    """
+
+    investigation_id: UUID | None = None
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+    giro: str | None = None
+    scian: str | None = None
+    etiqueta: str | None = None
+
+
+class CompareRequest(BaseModel):
+    """Comparación de ubicaciones.
+
+    Dos formas (compatibles):
+
+    - Legacy: ``investigation_ids`` (2 a 5 ids) — comportamiento histórico.
+    - Nueva: ``items`` (2 a 6 elementos), cada uno una investigación
+      (``investigation_id``) o un punto directo (``lat``/``lon``).
+    """
+
+    investigation_ids: list[UUID] | None = Field(
+        default=None,
         min_length=2,
         max_length=5,
-        description="Ids de las investigaciones a comparar (de 2 a 5)",
+        description="LEGACY: ids de investigaciones a comparar (de 2 a 5)",
+    )
+    items: list[CompareInputItem] | None = Field(
+        default=None,
+        min_length=2,
+        max_length=6,
+        description="Investigaciones y/o puntos directos (de 2 a 6)",
     )
 
 

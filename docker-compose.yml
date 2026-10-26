@@ -78,6 +78,8 @@ services:
       - ./backend:/code
       # Docs (PERFIL-EMPRESA*) para los tests de company/profile dentro del contenedor.
       - ./docs:/docs:ro
+      # Workflows versionados para GET /pipelines/workflows (metadatos en la UI).
+      - ./n8n:/n8n:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 15s

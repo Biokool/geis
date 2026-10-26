@@ -65,6 +65,13 @@ class Lead(Base):
     nombre: Mapped[str] = mapped_column(Text, nullable=False)
     giro: Mapped[str | None] = mapped_column(Text)
     direccion: Mapped[str | None] = mapped_column(Text, server_default="")
+    # Geografía derivada (migración 0005): el Radar original no trae estos
+    # campos (INVENTARIO-RADAR §2.3); los llena POST /leads/enrich-geo.
+    entidad: Mapped[str | None] = mapped_column(Text)
+    municipio: Mapped[str | None] = mapped_column(Text)
+    colonia: Mapped[str | None] = mapped_column(Text)
+    cp: Mapped[str | None] = mapped_column(Text)
+    scian: Mapped[str | None] = mapped_column(Text)
     geom: Mapped[str | None] = mapped_column(Geometry("POINT", 4326))
     telefono: Mapped[str | None] = mapped_column(Text)
     web: Mapped[str | None] = mapped_column(Text)

@@ -36,6 +36,23 @@ React 18.3.1, react-router-dom 6.26.2, Vite 5.4.8, TypeScript 5.5.4, Tailwind CS
 - Red `geis-net` interna. Host: 3000 (web), 8000 (api), 5678 (n8n), 5000 (scraper), 5432 (db).
 - URLs internas Docker: `N8N_URL=http://n8n:5678`, `SCRAPER_URL=http://scraper:5000`, `DATABASE_URL=postgresql+psycopg2://geis:***@db:5432/geis`, `REDIS_URL=redis://redis:6379/0`.
 
+## Servicios externos del análisis de ubicaciones (sin llave)
+
+| Servicio | Variable | Default | Fallback si falla |
+|---|---|---|---|
+| Nominatim/OSM (geocoding) | — | `https://nominatim.openstreetmap.org` | `POST /territories/geocode` → **422** (nunca un punto falso) |
+| Valhalla/OSM (isócronas) | `VALHALLA_BASE_URL` | `https://valhalla1.openstreetmap.de` | `area_alcance_tiempo.alcance_tipo="radios"` |
+| Overpass/OSM (vialidades) | — | `https://overpass-api.de/api/interpreter` | lista vacía; el proxy vehicular usa basal poblacional (declarado) |
+
+- Todos usan `User-Agent: GEIS/1.0 (geis-local)` y timeouts de 10–15 s.
+- Overpass puede responder **502** por capacidad; el reporte sigue siendo válido y lo declara (no inventa vialidades).
+- `VALHALLA_BASE_URL` es opcional: si se define una instancia propia, se usa esa.
+
+## Migraciones vigentes
+
+- Revisión **0006 (head)**: `0005` agrega `entidad/municipio/colonia/cp/scian` + índices a `prod.leads`; `0006` crea `prod.report_shares` y `prod.user_investigations.es_principal`.
+- Verificar con `docker compose exec api alembic current`; aplicar con `make migrate`.
+
 ## Configuración sensible de n8n (crítico)
 
 - `N8N_ENCRYPTION_KEY`: 64 hex, generada UNA vez (PowerShell: `-join ((1..64) | % { '{0:x}' -c (Get-Random -Max 16) })`). Jamás rotarla sin re-importar credenciales.

@@ -15,11 +15,15 @@ geis/
 │   ├── Dockerfile (python:3.11-slim + uvicorn)
 │   ├── requirements.txt
 │   ├── app/                 # main.py, api/v1/, modelos, servicios
-│   └── alembic/             # Migraciones (crean las TABLAS)
+│   │   ├── geo/geocoding.py            # Nominatim + parser de links de Maps
+│   │   ├── connectors/{overpass,valhalla}.py  # vialidades e isócronas OSM
+│   │   ├── analytics/{anclas,categorias,movilidad,sector_data}.py
+│   │   └── reports/context.py          # contexto completo del reporte
+│   └── alembic/             # Migraciones (crean las TABLAS) — cadena 0001..0006
 ├── frontend/                # SPA React (worker frontend) — src/ protegida por AGENTS.md
 │   ├── Dockerfile (multietapa node:20-alpine → nginx:alpine)
 │   ├── nginx.conf           # SPA fallback + proxy /api/ → api:8000
-│   └── src/                 # pages/, lib/api.ts, componentes shadcn
+│   └── src/                 # pages/ (Analizar, Aprende, PanelRadar, Reporte*), lib/{api,apiGeo}.ts
 ├── scraper/                 # Playwright → /scrape, /health (:5000)
 │   ├── Dockerfile (python:3.11-slim-bookworm + playwright install --with-deps chromium)
 │   ├── requirements.txt     # + playwright==1.49.0
@@ -46,6 +50,8 @@ geis/
 
 16 routers: `company`, `catalogs`, `analysis`, `ai`, `leads`, `investigations`, `territories`, `system`, `signals`, `reports`, `providers`, `proposals`, `pipelines`, `etl`, `geo_weather`, `geo` (`_common` helpers). Documentación interactiva: `http://localhost:8000/docs`. Detalle en [api/rest.md](api/rest.md).
 
+Endpoints de la reestructuración (2026-10-21/25): `GET /leads/count`, `POST /leads/enrich-geo`, `GET /catalogs/geo-filters`, `POST /analysis/compare`, `PATCH`/`DELETE /investigations/{id}`, `POST /reports/{id}/share`, `GET /reports/shared/{token}`, `DELETE /reports/{id}/share/{token}`; `POST /territories/geocode` ahora es geocoding real (fuente + componentes).
+
 ### Scraper (`:5000`)
 
 - `POST /scrape` — body con query de Google Maps + `max_results`; devuelve leads crudos.
@@ -70,9 +76,10 @@ Credenciales n8n (nombres): `Postgres GEIS` (ssl `"disable"`), `Apollo API`, `Hu
 
 ## Bases de datos y esquemas
 
-- `prod`: `leads`, `runs`, `providers`, `warm_signals`, `linkedin_stats`, `denue_establishments`, `user_investigations`, + tablas GEIS (territorios, reportes, propuestas, censo…).
+- `prod`: `leads` (con `entidad/municipio/colonia/cp/scian` desde 0005), `runs`, `providers`, `warm_signals`, `linkedin_stats`, `denue_establishments`, `user_investigations` (con `es_principal`), `report_shares` (0006), `reports`, + tablas GEIS (territorios, propuestas, censo…).
 - `stg`: `leads_raw`.
 - `quarantine`: rechazos de validación.
+- Cadena Alembic: `0001 → 0002 → 0003 → 0004 → 0005 → 0006 (head)`.
 
 ## Servicios externos
 
@@ -83,13 +90,16 @@ Credenciales n8n (nombres): `Postgres GEIS` (ssl `"disable"`), `Apollo API`, `Hu
 | LinkedIn Community Management | Señales de página de empresa | `LINKEDIN_CLIENT_ID/SECRET/REDIRECT_URI` u `LINKEDIN_ACCESS_TOKEN` |
 | Apify | Scrapeo cloud alternativo | `APIFY_TOKEN` (plan FREE) |
 | Open-Meteo | Temperatura para scoring (gratis) | — |
-| Google Maps | Fuente de scrapeo (vía Playwright) | — |
+| Google Maps | Fuente de scrapeo (vía Playwright) y links geocodificables | — |
+| Nominatim / OSM | Geocoding directo e inverso (gratis, sin llave) | — |
+| Valhalla / OSM | Isócronas 5/10/15 min (demo público por defecto) | `VALHALLA_BASE_URL` (opcional) |
+| Overpass / OSM | Vialidades principales cercanas (gratis, sin llave) | — |
 | INEGI DENUE | Refresco de establecimientos | `DENUE_API_TOKEN` |
 | Proveedores IA del asistente (opcional) | Hasta 5: OpenAI, Anthropic, Gemini, Groq, DeepSeek | claves generadas por el wizard **Configurar empresa** |
 
 ## Variables de entorno requeridas (nombres solo)
 
-`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`, `REDIS_URL`, `DENUE_API_TOKEN`, `SECRET_KEY`, `VITE_API_URL`, `N8N_URL`, `N8N_API_KEY`, `N8N_ENCRYPTION_KEY`, `SCRAPER_URL`, `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, `LINKEDIN_REDIRECT_URI`, `LINKEDIN_ACCESS_TOKEN`, `APOLLO_API_KEY`, `APIFY_TOKEN`, `HUBSPOT_TOKEN`, + claves IA opcionales. Fuente de verdad: `.env.example` (ver [environment.md](environment.md)).
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`, `REDIS_URL`, `DENUE_API_TOKEN`, `SECRET_KEY`, `VITE_API_URL`, `N8N_URL`, `N8N_API_KEY`, `N8N_ENCRYPTION_KEY`, `SCRAPER_URL`, `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, `LINKEDIN_REDIRECT_URI`, `LINKEDIN_ACCESS_TOKEN`, `APOLLO_API_KEY`, `APIFY_TOKEN`, `HUBSPOT_TOKEN`, `VALHALLA_BASE_URL` (opcional), + claves IA opcionales. Fuente de verdad: `.env.example` (ver [environment.md](environment.md)).
 
 ## Volúmenes
 

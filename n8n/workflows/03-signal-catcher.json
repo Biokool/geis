@@ -1,4 +1,5 @@
-{"id":"DLIvvM3DgYWojN_5f9DMXA",
+{
+  "id": "DLIvvM3DgYWojN_5f9DMXA",
   "name": "03 - Caza señales",
   "nodes": [
     {
@@ -18,7 +19,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "cronExpression": "0 7 * * *"
+              "expression": "0 7 * * *"
             }
           ]
         }
@@ -40,6 +41,7 @@
         "options": {}
       },
       "id": "764fba3e-ddb8-4a59-a95a-a86cfe7abb5a",
+      "webhookId": "50ee60eb-db33-4d2c-a37f-5c7f0fe7d85f",
       "name": "Webhook radar-03",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -92,7 +94,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH up AS (\n  UPDATE prod.leads\n  SET score = LEAST(score + 25, 100), etapa = 'nuevo', updated_at = now()\n  WHERE lower(nombre) = lower({{ $json.nombre }}) AND lower(direccion) = lower('')\n  RETURNING lead_id\n)\nINSERT INTO prod.leads (source, nombre, giro, direccion, score, etapa, linea_recomendada)\nSELECT 'manual', {{ $json.nombre }}, {{ $json.giro }}, '', 25, 'nuevo', 'evaporativa'\nWHERE NOT EXISTS (SELECT 1 FROM up);",
+        "query": "WITH up AS (\n  UPDATE prod.leads\n  SET score = LEAST(score + 25, 100), etapa = 'nuevo', updated_at = now()\n  WHERE lower(nombre) = lower({{ $json.nombre }}) AND lower(direccion) = lower('')\n    AND {{ $json.skip ? 'false' : 'true' }}\n  RETURNING lead_id\n)\nINSERT INTO prod.leads (source, nombre, giro, direccion, score, etapa, linea_recomendada)\nSELECT 'manual', {{ $json.nombre }}, {{ $json.giro }}, '', 25, 'nuevo', 'evaporativa'\nWHERE NOT EXISTS (SELECT 1 FROM up) AND {{ $json.skip ? 'false' : 'true' }};",
         "options": {}
       },
       "credentials": {
@@ -199,7 +201,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Convierte warm_signals al formato del upsert (nombre/giro ya escapados).\nconst q = (s) => \"'\" + String(s ?? '').replace(/'/g, \"''\") + \"'\";\nconst rows = $('Leer warm signals').all().map(i => i.json).filter(r => (r.empresa_ref || '').trim());\nreturn rows.map(r => ({ nombre: q(r.empresa_ref.trim()), giro: q(''),\n  nota: (r.titulo || '') + ' — ' + (r.detalle || '') }));"
+        "jsCode": "// Convierte warm_signals al formato del upsert (nombre/giro ya escapados).\nconst q = (s) => \"'\" + String(s ?? '').replace(/'/g, \"''\") + \"'\";\nconst rows = $('Leer warm signals').all().map(i => i.json).filter(r => (r.empresa_ref || '').trim());\nif (!rows.length) return [{ nombre: \"'__sin_warm__'\", giro: \"''\", skip: true }];\nreturn rows.map(r => ({ nombre: q(r.empresa_ref.trim()), giro: q(''), skip: false,\n  nota: (r.titulo || '') + ' — ' + (r.detalle || '') }));"
       },
       "id": "d5059776-e103-4858-aa56-905d27ac4de1",
       "name": "Armar warm",
@@ -213,7 +215,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH up AS (\n  UPDATE prod.leads\n  SET score = LEAST(score + 25, 100), etapa = 'nuevo', updated_at = now()\n  WHERE lower(nombre) = lower({{ $json.nombre }}) AND lower(direccion) = lower('')\n  RETURNING lead_id\n)\nINSERT INTO prod.leads (source, nombre, giro, direccion, score, etapa, linea_recomendada)\nSELECT 'manual', {{ $json.nombre }}, {{ $json.giro }}, '', 25, 'nuevo', 'evaporativa'\nWHERE NOT EXISTS (SELECT 1 FROM up);",
+        "query": "WITH up AS (\n  UPDATE prod.leads\n  SET score = LEAST(score + 25, 100), etapa = 'nuevo', updated_at = now()\n  WHERE lower(nombre) = lower({{ $json.nombre }}) AND lower(direccion) = lower('')\n    AND {{ $json.skip ? 'false' : 'true' }}\n  RETURNING lead_id\n)\nINSERT INTO prod.leads (source, nombre, giro, direccion, score, etapa, linea_recomendada)\nSELECT 'manual', {{ $json.nombre }}, {{ $json.giro }}, '', 25, 'nuevo', 'evaporativa'\nWHERE NOT EXISTS (SELECT 1 FROM up) AND {{ $json.skip ? 'false' : 'true' }};",
         "options": {}
       },
       "credentials": {

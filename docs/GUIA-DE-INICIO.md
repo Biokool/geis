@@ -2,12 +2,12 @@
 
 ## Qué es este sistema (en una frase)
 
-Una máquina de prospección con inteligencia territorial: **configuras tu
-empresa una vez**, el sistema **investiga territorios** (mapa, competencia,
-demanda), convierte los hallazgos en **leads puntuados**, los **trabaja en un
-pipeline** (scrapeo → señales → CRM) y **mide** todo. El menú está ordenado
-como ese proceso: Inicio → 1 Inteligencia → 2 Prospección → 3 Operación →
-4 Sistema.
+Una máquina de prospección con inteligencia territorial, dividida en **dos
+grandes secciones** (selector arriba del menú): **📍 Ubicaciones** — análisis
+de ubicaciones estilo Sabueso IA: giro + dirección → reporte completo — y
+**🎯 Radar** — la prospección operativa del repo Biokool: pipeline, leads
+puntuados, señales y CRM. **Inicio** y **Sistema** (salud, Configuración,
+Asistente IA) son comunes a ambas.
 
 ## Arranque técnico (una sola vez)
 
@@ -54,21 +54,30 @@ Cuando los 5 están completos, Inicio dice «Sistema operando».
 
 ## Mapa de pantallas
 
+**📍 Sección Ubicaciones (análisis tipo Sabueso)**
+
 | Pantalla | Para qué |
 |---|---|
-| Inicio | Centro de mando: primeros pasos, KPIs, actividad |
-| Mapa | Dibujar zonas, ver capas (establecimientos, leads), investigar |
-| Reporte | El análisis completo de una ubicación (13 secciones + plan) |
-| Comparador | 2–5 ubicaciones lado a lado, con ganadora |
+| Analizar | La puerta: giro + dirección o link de Maps → reporte en 1 clic |
+| Reporte | Análisis completo visual: mapas, dona, isócronas, calculadoras, compartir (WhatsApp/PDF/link) |
+| Mapa | Capas (establecimientos, leads, atractores, isócronas), dibujar zonas |
+| Comparador | 2–6 ubicaciones lado a lado (admite direcciones directas), ganadora persistente |
 | Historial | Tus investigaciones: reabrir, comparar, borrar |
-| Leads | La lista única de prospectos con score y ficha |
-| KPIs | Embudo comercial y salud de la prospección |
-| Operación | Pipeline Radar: corridas, señales, LinkedIn |
+| Aprende | Qué significa cada bloque del reporte |
+
+**🎯 Sección Radar (prospección tipo Biokool)**
+
+| Pantalla | Para qué |
+|---|---|
+| Panel Radar | Alertas, KPIs y gráficas del Radar |
+| Operación | Pipeline de 5 etapas con orden bloqueado, providers, LinkedIn, clima, enriquecer geografía |
+| Leads | Lista única con filtros por entidad, municipio, colonia, CP, SCIAN, etapa y línea; ficha con «Cómo contactarlo» |
+| Mapa Radar | El Mapa con preset Radar (leads + capa térmica + filtros geo) |
 | Geofencing | Zonas y alertas geográficas |
 | Exportación | CSV de leads y reportes |
-| Sistema | Salud de servicios e integraciones |
-| Configuración | Perfil de empresa, giro y llaves de IA |
-| Asistente IA | Operador interno: pregunta y ejecuta con tus datos |
+
+**Comunes:** Inicio (centro de mando) · Sistema (salud e integraciones) ·
+Configuración (perfil de empresa y llaves de IA) · Asistente IA.
 
 ## Problemas comunes
 

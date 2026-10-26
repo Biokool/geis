@@ -1,4 +1,5 @@
-{"id":"-mWNKxcHiOJHNmjeKc-chN",
+{
+  "id": "-mWNKxcHiOJHNmjeKc-chN",
   "name": "02 - Dedup y score",
   "nodes": [
     {
@@ -20,6 +21,7 @@
         "options": {}
       },
       "id": "0fda4667-b22b-4940-b8c0-40b9295c2b39",
+      "webhookId": "b0c6083d-710f-43a1-9deb-5897626c28bc",
       "name": "Webhook radar-02",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -215,7 +217,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3960,
+        4180,
         340
       ],
       "onError": "continueRegularOutput"
@@ -474,7 +476,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "cronExpression": "0 30 6 * * 1"
+              "expression": "30 6 * * 1"
             }
           ]
         }
@@ -487,6 +489,28 @@
         200,
         580
       ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/leads/enrich-geo",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"limite\": 500}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "6de96903-02d6-4408-b15d-baf398b99071",
+      "name": "Enriquecer geografía (opcional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3960,
+        340
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Opcional (Sección 2): deriva entidad/municipio/colonia/cp/scian en prod.leads tras el scoring. Si la API falla, el flujo sigue y el run cierra OK."
     }
   ],
   "connections": {
@@ -593,7 +617,7 @@
       "main": [
         [
           {
-            "node": "Callback Run OK",
+            "node": "Enriquecer geografía (opcional)",
             "type": "main",
             "index": 0
           }
@@ -712,6 +736,17 @@
         [
           {
             "node": "Registrar run (GEIS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enriquecer geografía (opcional)": {
+      "main": [
+        [
+          {
+            "node": "Callback Run OK",
             "type": "main",
             "index": 0
           }

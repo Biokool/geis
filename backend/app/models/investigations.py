@@ -69,6 +69,10 @@ class UserInvestigation(Base):
     )
     model_params_version: Mapped[int | None] = mapped_column(Integer)
     report_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    #: Ganadora persistente del comparador (migración 0006): una por usuario.
+    es_principal: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     share_token: Mapped[str | None] = mapped_column(Text, unique=True)
     share_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

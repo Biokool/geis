@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.schemas.common import Lineage
 
@@ -17,8 +17,26 @@ class InvestigationCreate(BaseModel):
     territory_kind: str = Field(default="point_buffers")
     center_lat: float | None = None
     center_lon: float | None = None
-    radios_m: list[int] | None = None
+    # El frontend histórico envía `radii_m` (como el ReportOut) y el Radar
+    # envía `radios_m`: se aceptan ambos para no perder los radios en
+    # silencio (antes `radii_m` se ignoraba y el mapa no pintaba círculos).
+    radios_m: list[int] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("radios_m", "radii_m"),
+        serialization_alias="radii_m",
+    )
     params: dict = Field(default_factory=dict)
+
+
+class InvestigationPatch(BaseModel):
+    """Actualización parcial de una investigación.
+
+    ``es_principal``: ganadora persistente del comparador. Al ponerla en
+    true, el backend desmarca las demás investigaciones del mismo usuario.
+    """
+
+    es_principal: bool | None = None
+    title: str | None = None
 
 
 class InvestigationOut(BaseModel):
@@ -35,5 +53,6 @@ class InvestigationOut(BaseModel):
     scores: dict | None
     verdict: str | None
     status: str
+    es_principal: bool = False
     created_at: datetime
     lineage: Lineage

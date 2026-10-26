@@ -268,6 +268,20 @@ export default function Inicio() {
             </CardContent>
           </Card>
 
+          {/* Acceso destacado · Sección 1: puerta única de análisis (2 campos + 1 clic) */}
+          <Card className="border-2 border-primary/50 bg-primary/5">
+            <CardContent className="flex flex-wrap items-center gap-4 py-5">
+              <span aria-hidden className="text-3xl">📍</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-semibold">Analizar una ubicación</p>
+                <p className="text-sm text-muted-foreground">
+                  Giro + dirección o link de Google Maps → reporte completo en una pantalla: competencia, entorno, alcance, calculadoras y veredicto. Sin pasar por el mapa.
+                </p>
+              </div>
+              <Button size="lg" onClick={() => navigate('/analizar')}>Analizar una ubicación →</Button>
+            </CardContent>
+          </Card>
+
           {/* Cómo funciona */}
           <section>
             <h2 className="mb-3 text-lg font-semibold tracking-tight">Cómo funciona</h2>

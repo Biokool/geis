@@ -13,12 +13,28 @@ import Operacion from '@/pages/Operacion';
 import Sistema from '@/pages/Sistema';
 import Configuracion from '@/pages/Configuracion';
 import Asistente from '@/pages/Asistente';
+// Sección 1 · Ubicaciones (los crea el worker de Sección 1)
+import Analizar from '@/pages/Analizar';
+import Aprende from '@/pages/Aprende';
+import ReportePrint from '@/pages/ReportePrint';
+import ReporteCompartido from '@/pages/ReporteCompartido';
+// Sección 2 · Radar
+import PanelRadar from '@/pages/PanelRadar';
 
 export default function App() {
   return (
     <Routes>
+      {/* Vistas públicas / imprimibles: FUERA del layout principal (sin sidebar) */}
+      <Route path="/reporte/:id/imprimir" element={<ReportePrint />} />
+      <Route path="/r/:token" element={<ReporteCompartido />} />
       <Route element={<AppLayout />}>
         <Route index element={<Inicio />} />
+        {/* Sección 1 · Ubicaciones */}
+        <Route path="/analizar" element={<Analizar />} />
+        <Route path="/aprende" element={<Aprende />} />
+        {/* Sección 2 · Radar */}
+        <Route path="/panel-radar" element={<PanelRadar />} />
+        {/* Rutas existentes (compartidas / comunes) */}
         <Route path="/mapa" element={<Mapa />} />
         <Route path="/kpis" element={<Kpis />} />
         <Route path="/leads" element={<Leads />} />
