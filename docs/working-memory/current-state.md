@@ -1,10 +1,10 @@
 # Working Memory — estado actual
 
-> Última actualización: 2026-10-26, cierre de la ingesta real del INEGI (DENUE 2026-05 + Censo 2020 AGEB urbana para CDMX y Querétaro, ADR-011/012/013) sobre la validación E2E previa. Este archivo es la primera parada al retomar el proyecto; se refresca cada sesión (el histórico vive en `sessions/` y `changelog.md`).
+> Última actualización: 2026-10-26, cierre de la ingesta real del INEGI (DENUE 2026-05 + Censo 2020 AGEB urbana para CDMX y Querétaro, ADR-011/012/013), el catálogo SCIAN visible en «Analizar» y el fix del 504 de «Reporte». Este archivo es la primera parada al retomar el proyecto; se refresca cada sesión (el histórico vive en `sessions/` y `changelog.md`).
 
 ## Objetivo activo
 
-Datos oficiales cargados, reporte real regenerado con el **mismo link público** (`/r/<token>`, share id 3 → report `b576bed8-c2ff-40bd-8e45-8ecc5ae141ed`) y catálogo SCIAN **visible en «Analizar»** (autocompletado de giros + combobox SCIAN). Siguiente: **commit + push** de la UI del catálogo, **verificación visual del owner** y push del working tree restante.
+Datos oficiales cargados, reporte real con el **mismo link público** (`/r/<token>`, share id 3 → report `b576bed8-c2ff-40bd-8e45-8ecc5ae141ed`), catálogo SCIAN **visible en «Analizar»** y «Reporte» **sin 504** (Overpass en paralelo + nginx 300 s). Siguiente: **commit + push** de la UI y del fix 504, y **verificación visual del owner** (Ctrl+F5).
 
 ## Entorno
 
@@ -39,7 +39,7 @@ Datos oficiales cargados, reporte real regenerado con el **mismo link público**
 
 ## Hecho y verificado (no repetir)
 
-- **150/150 tests** (`docker compose exec api pytest -q`, 8 de INEGI/Overpass + 3 de `/catalogs/giros`); 15 GETs 200; CRUD reports/investigations/proposals/share/export verificados contra la BD real.
+- **151/151 tests** (`docker compose exec api pytest -q`, 8 de INEGI/Overpass + 3 de `/catalogs/giros` + 1 de caché Overpass); 15 GETs 200; CRUD reports/investigations/proposals/share/export verificados contra la BD real.
 - **POST /reports con giro de texto libre validado E2E (ADR-010):** 201 `AVANZAR` + auto-aprendizaje en `public.knowledge_facts` + 2.º POST 201 + GET 200 (antes: 500 por `prod.knowledge_facts` + sesión envenenada).
 - **b2b-prospecting y lookalike** validados con datos reales (200, scores y ranking).
 - **Webhooks n8n:** `webhookId` UUID en los 5 nodos; `POST /webhook/radar-0X` → 200. Cron 02 corregido. IDs de workflow en `public.workflow_entity` (01 `czWM…`, 02 `-mWN…`, 03 `DLIv…`, 04 `e8sg…`, 05 `y3Kc…`).
@@ -47,14 +47,15 @@ Datos oficiales cargados, reporte real regenerado con el **mismo link público**
 - **E2E scrape real:** run 24 radar-01 con target Querétaro Centro 76000, giros bodegas → 18 leads geo-parseados.
 - **Ingesta INEGI real (ADR-011):** DENUE masivo por entidad (DBF latin-1, `pyshp`, idempotencia por edición+entidad) y Censo 2020 AGEB urbana cruzado con `<ent>a.shp` LCC→WGS84; seed demo retirado. Totales cuadran con INEGI (9.14 M CDMX / 1.87 M Qro urbanos).
 - **Catálogo SCIAN data-driven (ADR-013):** 205 clases / 529 alias; `resolver_scian` resuelve giros comunes («abarrotes»→461110, «gimnasio»→713943, «lavandería»→812210, «veterinaria»→541941); proxy NSE por bienes del hogar en 3 320 AGEB. **Visible en «Analizar»**: `GET /catalogs/giros` + autocompletado de Giro y combobox SCIAN (respaldo local de 15 si el API falla).
-- **Conectores:** DENUE API con rutas reales y token `DENUE_API_TOKEN` (probado en vivo: 2 428 resultados cerca del centro de Qro y ficha OK); Overpass con espejos en cascada (12 vialidades reales, Av. 5 de Febrero 48.6 m).
+- **Conectores:** DENUE API con rutas reales y token `DENUE_API_TOKEN` (probado en vivo: 2 428 resultados cerca del centro de Qro y ficha OK); Overpass con consulta por unión, **espejos en paralelo** (50 s c/u, 55 s de presupuesto), caché 6 h por bbox y negativa 10 min (12 vialidades reales, 33.8 s en frío; segunda llamada 0.00 s).
+- **«Reporte» sin 504:** nginx `/api/` con `proxy_read_timeout`/`proxy_send_timeout` 300 s; `POST /reports` por `localhost:3000` verificado en **79–82 s → 201 AVANZAR** con 12 vialidades (antes: 504 a los 60 s).
 - **Reporte real + share:** `b576bed8…` regenerado en 82 s (AVANZAR) con datos observados; `prod.report_shares` id 3 repuntado (misma URL pública, expira 2026-11-25).
 - 422 legítimos (no bugs): `{}` en reports/signals; compare sin `scian`/`giro` por ítem; geocode sin resolución.
 
 ## En progreso / pendiente inmediato
 
-1. **Commit + push** de la UI del catálogo pendiente (endpoint `/catalogs/giros`, `Analizar.tsx`, `api.ts`, 3 tests, docs); la ingesta INEGI ya está en `287f774`.
-2. **Verificación visual del owner:** reporte regenerado (misma URL `/r/<token>`), autocompletado de giro/SCIAN en «Analizar» (probar «gasolinera») y Leads con filtros geo Qro; Ctrl+F5 en el navegador.
+1. **Commit + push** pendiente de la UI del catálogo y del fix 504 (endpoint `/catalogs/giros`, `Analizar.tsx`, `api.ts`, `overpass.py`, `nginx.conf`, tests, docs); la ingesta INEGI ya está en `287f774`.
+2. **Verificación visual del owner:** «Reporte» con «gasolinera» (ya no debe dar 504), autocompletado de giro/SCIAN en «Analizar», reporte público (misma URL `/r/<token>`) y Leads con filtros geo Qro; Ctrl+F5 en el navegador.
 3. Fase 2 INEGI: **manzanas y AGEB rurales** (`<ent>ar`), `marco_entidades`/`marco_municipios`, y 2 AGEB sin polígono por entidad (en cuarentena).
 4. `scian` de leads: ahora sale del DENUE real (571 k) cuando hay establecimiento a ≤500 m; el resto sigue sin mapear (decisión pendiente del owner).
 5. ISM en zonas de baja competencia (1 competidor → miles): es `D/(O+1)`; decidir si el owner quiere un cap o una nota explícita en el reporte.
@@ -64,7 +65,7 @@ Datos oficiales cargados, reporte real regenerado con el **mismo link público**
 ```powershell
 docker compose ps
 docker compose exec api alembic current                    # debe decir 0006 (head)
-docker compose exec api pytest -q                           # 150 expected
+docker compose exec api pytest -q                           # 151 expected
 Invoke-RestMethod http://localhost:3000/api/v1/system/health
 Invoke-RestMethod http://localhost:3000/api/v1/leads/count
 Invoke-RestMethod "http://localhost:3000/api/v1/leads/count?entidad=Quer%C3%A9taro"   # 82

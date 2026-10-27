@@ -2,6 +2,32 @@
 
 > Registro cronológico del trabajo real sobre el repositorio. Reconstruido el 2026-10-21 desde la bitácora de las sesiones de integración (previo a la adopción de git). Formato: fecha + categorías.
 
+## [2026-10-26] — Fix del 504 al generar reporte: Overpass en paralelo y timeout de nginx
+
+> «Reporte» devolvía **504** con giro «gasolinera» en Villas del Sol (Qro). El
+> backend sí creaba el reporte, pero tardaba ~140 s (3 espejos Overpass en
+> secuencia × 45 s) y nginx cortaba a los 60 s. Extiende ADR-012.
+
+### Fixed
+
+- `frontend/nginx.conf`: `proxy_read_timeout` y `proxy_send_timeout` de **300 s**
+  para `/api/` (`proxy_connect_timeout` 10 s). Ya no hay 504 por reportes
+  lentos.
+- `connectors/overpass.py`: consulta por **unión** de tres `way[highway=…]`
+  (más rápida que el regex), espejos consultados **en paralelo** (50 s c/u,
+  55 s de presupuesto total), caché de 6 h por bbox y **caché negativa de
+  10 min** para no repetir la espera cuando los espejos están caídos.
+
+### Verified
+
+- `fetch_vialidades(20.5814, −100.3788)`: **33.8 s → 12 vialidades**, segunda
+  llamada **0.00 s** (caché).
+- `POST /reports` por nginx (`localhost:3000`): **79–82 s → 201 AVANZAR**, con
+  **12 vialidades** (antes: 504). Mismo punto y uno frío en CDMX.
+- `pytest -q` → **151/151** (+1 de caché; actualizados los de espejos).
+- Los 5 reportes de prueba del diagnóstico (`Prueba 504…`) se borraron de
+  `prod.reports`.
+
 ## [2026-10-26] — Catálogo de giros visible en «Analizar» (autocompletado real)
 
 > El catálogo cargado por el ETL (529 alias / 205 clases) no se veía en la UI:

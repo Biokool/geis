@@ -3,11 +3,20 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from app.connectors import overpass
 from app.connectors.denue_api import DenueApiClient
 from app.data.catalogo_scian import ALIASES, OVERRIDES, SECTOR_PARAMS
 from app.etl.jobs.censo_ageb import _nse, _pct
 from app.etl.jobs.denue_bulk import _coord, _estrato_ordinal, _fecha, _scian
+
+
+@pytest.fixture(autouse=True)
+def _cache_overpass_limpia():
+    overpass._CACHE.clear()
+    yield
+    overpass._CACHE.clear()
 
 
 def test_estrato_ordinal_mapea_los_siete_rangos():
@@ -120,13 +129,44 @@ def test_overpass_usa_el_siguiente_espejo_si_falla_el_primero(monkeypatch):
 
     monkeypatch.setattr(overpass.httpx, "post", post_falso)
     vias = overpass.fetch_vialidades(20.5, -100.4)
-    assert llamadas == [overpass.OVERPASS_MIRRORS[0], overpass.OVERPASS_MIRRORS[1]]
+    assert set(llamadas) == set(overpass.OVERPASS_MIRRORS)
     assert vias == [{"nombre": "Avenida de Prueba", "tipo": "primary", "distancia_m": 0.0}]
 
 
 def test_overpass_devuelve_vacio_si_todos_los_espejos_fallan(monkeypatch):
+    llamadas: list[str] = []
+
     def post_falso(url, data=None, timeout=None, headers=None):
+        llamadas.append(url)
         raise overpass.httpx.HTTPError("caído")
 
     monkeypatch.setattr(overpass.httpx, "post", post_falso)
     assert overpass.fetch_vialidades(20.5, -100.4) == []
+    # El fallo se recuerda: la segunda llamada no vuelve a esperar a Overpass.
+    assert overpass.fetch_vialidades(20.5, -100.4) == []
+    assert len(llamadas) == len(overpass.OVERPASS_MIRRORS)
+
+
+def test_overpass_cachea_la_misma_consulta(monkeypatch):
+    llamadas: list[str] = []
+
+    class Respuesta:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"elements": [{
+                "tags": {"highway": "primary", "name": "Av. Cache"},
+                "geometry": [{"lat": 20.6, "lon": -100.3}],
+            }]}
+
+    def post_falso(url, data=None, timeout=None, headers=None):
+        llamadas.append(url)
+        return Respuesta()
+
+    monkeypatch.setattr(overpass.httpx, "post", post_falso)
+    primera = overpass.fetch_vialidades(20.6, -100.3)
+    llamadas_primera = len(llamadas)
+    segunda = overpass.fetch_vialidades(20.6, -100.3)
+    assert primera == segunda
+    assert len(llamadas) == llamadas_primera
