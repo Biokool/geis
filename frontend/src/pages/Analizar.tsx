@@ -13,7 +13,8 @@ import { Badge } from '@/components/ui/Badge';
 import { MapaExpandible } from '@/components/map/MapaExpandible';
 import {
   geocode, createInvestigation, createReport, deriveCompanyConfig,
-  errorMessage, GIROS_CATALOGO, type GeocodeResult, type GiroFicha,
+  errorMessage, GIROS_CATALOGO, listGirosCatalog, listScianCatalog,
+  type GeocodeResult, type GiroFicha, type ScianCatalogItem,
 } from '@/lib/api';
 import { toast } from 'sonner';
 
@@ -46,6 +47,10 @@ export default function Analizar() {
   const [scianNota, setScianNota] = React.useState<string | null>(null);
   const [mostrarSugerencias, setMostrarSugerencias] = React.useState(false);
   const [girosExtra, setGirosExtra] = React.useState<GiroFicha[]>([]);
+  const [catalogoGiros, setCatalogoGiros] = React.useState<GiroFicha[]>([]);
+  const [catalogoScian, setCatalogoScian] = React.useState<ScianCatalogItem[]>([]);
+  const [catalogoCargado, setCatalogoCargado] = React.useState(false);
+  const [mostrarScian, setMostrarScian] = React.useState(false);
   const [direccion, setDireccion] = React.useState('');
   const [punto, setPunto] = React.useState<Punto | null>(null);
   const [ubicando, setUbicando] = React.useState(false);
@@ -73,13 +78,84 @@ export default function Analizar() {
     return () => { vivo = false; };
   }, []);
 
-  const todosGiros = React.useMemo(() => [...GIROS_CATALOGO, ...girosExtra], [girosExtra]);
+  // Catálogo real del backend (giros con alias + clases SCIAN) para el autocompletado.
+  React.useEffect(() => {
+    let vivo = true;
+    Promise.all([listGirosCatalog(), listScianCatalog()])
+      .then(([giros, scian]) => {
+        if (!vivo) return;
+        const vistos = new Set(GIROS_CATALOGO.map((g) => sinAcentos(g.nombre)));
+        const fichas: GiroFicha[] = [];
+        for (const g of giros.items) {
+          const clave = sinAcentos(g.giro);
+          if (vistos.has(clave)) continue;
+          vistos.add(clave);
+          fichas.push({
+            nombre: g.giro,
+            scian: [g.scian_code],
+            alias: [g.giro, g.description ?? ''].filter(Boolean),
+          });
+        }
+        for (const s of scian.items) {
+          const nombre = s.description ?? s.scian_code;
+          const clave = sinAcentos(nombre);
+          if (vistos.has(clave)) continue;
+          vistos.add(clave);
+          fichas.push({ nombre, scian: [s.scian_code], alias: [nombre, s.scian_code] });
+        }
+        setCatalogoGiros(fichas);
+        setCatalogoScian(scian.items);
+      })
+      .catch(() => { /* catálogo caído: quedan los 15 giros locales */ })
+      .finally(() => { if (vivo) setCatalogoCargado(true); });
+    return () => { vivo = false; };
+  }, []);
+
+  const todosGiros = React.useMemo(() => {
+    const vistos = new Set<string>();
+    const lista: GiroFicha[] = [];
+    for (const f of [...GIROS_CATALOGO, ...girosExtra, ...catalogoGiros]) {
+      const clave = sinAcentos(f.nombre);
+      if (vistos.has(clave)) continue;
+      vistos.add(clave);
+      lista.push(f);
+    }
+    return lista;
+  }, [girosExtra, catalogoGiros]);
 
   const sugerencias = React.useMemo(() => {
     const q = sinAcentos(giro);
-    if (!q) return todosGiros;
-    return todosGiros.filter((g) => sinAcentos(g.nombre).includes(q) || g.alias.some((a) => sinAcentos(a).includes(q)));
+    const base = q
+      ? todosGiros.filter((g) => sinAcentos(g.nombre).includes(q) || g.alias.some((a) => sinAcentos(a).includes(q)))
+      : todosGiros;
+    const orden = q
+      ? [...base].sort((a, b) => {
+          const ea = sinAcentos(a.nombre);
+          const eb = sinAcentos(b.nombre);
+          return Number(!ea.startsWith(q)) - Number(!eb.startsWith(q)) || ea.localeCompare(eb);
+        })
+      : base;
+    return orden.slice(0, 60);
   }, [giro, todosGiros]);
+
+  const scianSugerencias = React.useMemo(() => {
+    const q = scian.trim();
+    if (!q) return catalogoScian.slice(0, 40);
+    const t = sinAcentos(q);
+    return catalogoScian
+      .filter((s) => s.scian_code.includes(q) || sinAcentos(s.description ?? '').includes(t))
+      .slice(0, 40);
+  }, [scian, catalogoScian]);
+
+  const elegirScian = (s: ScianCatalogItem) => {
+    setScian(s.scian_code);
+    setMostrarScian(false);
+    setScianNota(
+      s.description
+        ? `SCIAN ${s.scian_code} — ${s.description}. Editable.`
+        : `SCIAN ${s.scian_code}. Editable.`,
+    );
+  };
 
   const elegirGiro = (f: GiroFicha) => {
     setGiro(f.nombre);
@@ -207,7 +283,7 @@ export default function Analizar() {
                 <Field label="1 · Giro del negocio" htmlFor="an-giro" required>
                   <Input
                     id="an-giro"
-                    placeholder="Ej. Cafetería, sushi, farmacia…"
+                    placeholder="Ej. gasolinera, abarrotes, gimnasio…"
                     value={giro}
                     autoComplete="off"
                     onChange={(e) => alEscribirGiro(e.target.value)}
@@ -218,7 +294,7 @@ export default function Analizar() {
                 {mostrarSugerencias && sugerencias.length > 0 && (
                   <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-card shadow-lg">
                     {sugerencias.map((f) => (
-                      <li key={f.nombre}>
+                      <li key={`${f.nombre}-${f.scian[0] ?? 'auto'}`}>
                         <button type="button" className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/60" onMouseDown={(e) => e.preventDefault()} onClick={() => elegirGiro(f)}>
                           <span className="font-medium">{f.nombre}</span>
                           <span className="font-mono text-xs text-muted-foreground">{f.scian.length ? `SCIAN ${f.scian.join(', ')}` : 'SCIAN automático'}</span>
@@ -228,12 +304,40 @@ export default function Analizar() {
                   </ul>
                 )}
                 <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                  <Field label="SCIAN (editable)" htmlFor="an-scian">
-                    <Input id="an-scian" placeholder="Se resuelve automáticamente" value={scian} onChange={(e) => { setScian(e.target.value); setScianNota('SCIAN capturado manualmente: se enviará tal cual al análisis.'); }} className="font-mono" />
-                  </Field>
+                  <div className="relative">
+                    <Field label="SCIAN (editable)" htmlFor="an-scian">
+                      <Input
+                        id="an-scian"
+                        placeholder={catalogoCargado ? 'Código o giro (ej. 491110 o gasolinera)' : 'Se resuelve automáticamente'}
+                        value={scian}
+                        autoComplete="off"
+                        onChange={(e) => { setScian(e.target.value); setMostrarScian(true); setScianNota('SCIAN capturado manualmente: se enviará tal cual al análisis.'); }}
+                        onFocus={() => setMostrarScian(true)}
+                        onBlur={() => window.setTimeout(() => setMostrarScian(false), 150)}
+                        className="font-mono"
+                      />
+                    </Field>
+                    {mostrarScian && scianSugerencias.length > 0 && (
+                      <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border bg-card shadow-lg">
+                        {scianSugerencias.map((s) => (
+                          <li key={s.scian_code}>
+                            <button type="button" className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted/60" onMouseDown={(e) => e.preventDefault()} onClick={() => elegirScian(s)}>
+                              <span className="shrink-0 font-mono text-xs text-muted-foreground">{s.scian_code}</span>
+                              <span className="truncate">{s.description ?? 'Sin descripción'}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                   <span className="pb-1 text-xs text-muted-foreground">Si lo dejas vacío, lo resuelve el backend.</span>
                 </div>
                 {scianNota && <p className="mt-1 text-xs text-muted-foreground">{scianNota}</p>}
+                {catalogoCargado && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Catálogo cargado: {catalogoGiros.length} giros y {catalogoScian.length} clases SCIAN. Escribe en cualquiera de los dos campos para filtrar.
+                  </p>
+                )}
               </div>
 
               {/* Campo 2: dirección / link */}

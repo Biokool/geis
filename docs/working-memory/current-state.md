@@ -4,7 +4,7 @@
 
 ## Objetivo activo
 
-Datos oficiales cargados y reporte real regenerado con el **mismo link público** (`/r/<token>`, share id 3 → report `b576bed8-c2ff-40bd-8e45-8ecc5ae141ed`). Siguiente: **commit + push** del working tree (ETL INEGI, catálogo SCIAN, conectores, tests, ADR-011/012/013, docs) y **verificación visual del owner** del reporte regenerado.
+Datos oficiales cargados, reporte real regenerado con el **mismo link público** (`/r/<token>`, share id 3 → report `b576bed8-c2ff-40bd-8e45-8ecc5ae141ed`) y catálogo SCIAN **visible en «Analizar»** (autocompletado de giros + combobox SCIAN). Siguiente: **commit + push** de la UI del catálogo, **verificación visual del owner** y push del working tree restante.
 
 ## Entorno
 
@@ -33,28 +33,28 @@ Datos oficiales cargados y reporte real regenerado con el **mismo link público*
 - Filtros geo con datos reales: `entidad=Querétaro` → 82; `+municipio=Santiago de Querétaro` → 75; `+colonia=Centro` → 17; `cp=76000` → 18. `geo-filters` en cascada poblado.
 - `prod.denue_establishments`: **571 316** de `DENUE_2026_05` (CDMX 462 520 · Qro 108 796; 284 en cuarentena; 931/840 clases SCIAN distintas). Cobertura AGEB 99.7 % CDMX / 97.0 % Qro. Seed demo retirado (0 filas).
 - `prod.inegi_agebs`: **3 320** AGEB urbanas (CDMX 2 431 → 9 138 524 hab; Qro 889 → 1 873 781 hab; 2 sin polígono por entidad en cuarentena). `prod.agg_ageb_scian`: **234 846** filas. `marco_entidades`/`marco_municipios` siguen en 0 (fase 2).
-- `prod.cat_scian`: **205 clases**; `prod.cat_giro_scian`: **529 alias** para 193 clases (`catalogo_scian --top 200`).
+- `prod.cat_scian`: **205 clases**; `prod.cat_giro_scian`: **529 alias** para 193 clases (`catalogo_scian --top 200`). Expuesto en `GET /catalogs/giros` y en el autocompletado de «Analizar» (Giro y SCIAN); respaldo local de 15 giros si el API falla.
 - `prod.reports`: reporte real regenerado `b576bed8-c2ff-40bd-8e45-8ecc5ae141ed` (AVANZAR, 82 s; 129 069 hab a 2 km, Internet 85.7 %, 12 vialidades; cita `DENUE_2026_05` + `CPV2020_AGEB_22`) + los de validación previos. Share id 3 repuntado al nuevo (misma URL `/r/<token>`, expira 2026-11-25).
 - Runs en verde: 24 (01 Qro), 25 (02), 29/30 (03), 28 (04), 26 (05); 27 (03) marcado error con motivo.
 
 ## Hecho y verificado (no repetir)
 
-- **147/147 tests** (`docker compose exec api pytest -q`, 8 nuevos de INEGI/Overpass); 15 GETs 200; CRUD reports/investigations/proposals/share/export verificados contra la BD real.
+- **150/150 tests** (`docker compose exec api pytest -q`, 8 de INEGI/Overpass + 3 de `/catalogs/giros`); 15 GETs 200; CRUD reports/investigations/proposals/share/export verificados contra la BD real.
 - **POST /reports con giro de texto libre validado E2E (ADR-010):** 201 `AVANZAR` + auto-aprendizaje en `public.knowledge_facts` + 2.º POST 201 + GET 200 (antes: 500 por `prod.knowledge_facts` + sesión envenenada).
 - **b2b-prospecting y lookalike** validados con datos reales (200, scores y ranking).
 - **Webhooks n8n:** `webhookId` UUID en los 5 nodos; `POST /webhook/radar-0X` → 200. Cron 02 corregido. IDs de workflow en `public.workflow_entity` (01 `czWM…`, 02 `-mWN…`, 03 `DLIv…`, 04 `e8sg…`, 05 `y3Kc…`).
 - **Radar-03 rama warm arreglada y probada con señal real:** `POST /signals` → run 30 ok, señal `procesada`, lead manual +25.
 - **E2E scrape real:** run 24 radar-01 con target Querétaro Centro 76000, giros bodegas → 18 leads geo-parseados.
 - **Ingesta INEGI real (ADR-011):** DENUE masivo por entidad (DBF latin-1, `pyshp`, idempotencia por edición+entidad) y Censo 2020 AGEB urbana cruzado con `<ent>a.shp` LCC→WGS84; seed demo retirado. Totales cuadran con INEGI (9.14 M CDMX / 1.87 M Qro urbanos).
-- **Catálogo SCIAN data-driven (ADR-013):** 205 clases / 529 alias; `resolver_scian` resuelve giros comunes («abarrotes»→461110, «gimnasio»→713943, «lavandería»→812210, «veterinaria»→541941); proxy NSE por bienes del hogar en 3 320 AGEB.
+- **Catálogo SCIAN data-driven (ADR-013):** 205 clases / 529 alias; `resolver_scian` resuelve giros comunes («abarrotes»→461110, «gimnasio»→713943, «lavandería»→812210, «veterinaria»→541941); proxy NSE por bienes del hogar en 3 320 AGEB. **Visible en «Analizar»**: `GET /catalogs/giros` + autocompletado de Giro y combobox SCIAN (respaldo local de 15 si el API falla).
 - **Conectores:** DENUE API con rutas reales y token `DENUE_API_TOKEN` (probado en vivo: 2 428 resultados cerca del centro de Qro y ficha OK); Overpass con espejos en cascada (12 vialidades reales, Av. 5 de Febrero 48.6 m).
 - **Reporte real + share:** `b576bed8…` regenerado en 82 s (AVANZAR) con datos observados; `prod.report_shares` id 3 repuntado (misma URL pública, expira 2026-11-25).
 - 422 legítimos (no bugs): `{}` en reports/signals; compare sin `scian`/`giro` por ítem; geocode sin resolución.
 
 ## En progreso / pendiente inmediato
 
-1. **Commit + push** del working tree de la ingesta INEGI (ETL, catálogo, conectores, `backend/data/raw` fuera por gitignore, tests, ADR-011/012/013, docs PKM).
-2. **Verificación visual del owner** del reporte regenerado (misma URL `/r/<token>`) y de Leads con filtros geo Qro; Ctrl+F5 en el navegador.
+1. **Commit + push** de la UI del catálogo pendiente (endpoint `/catalogs/giros`, `Analizar.tsx`, `api.ts`, 3 tests, docs); la ingesta INEGI ya está en `287f774`.
+2. **Verificación visual del owner:** reporte regenerado (misma URL `/r/<token>`), autocompletado de giro/SCIAN en «Analizar» (probar «gasolinera») y Leads con filtros geo Qro; Ctrl+F5 en el navegador.
 3. Fase 2 INEGI: **manzanas y AGEB rurales** (`<ent>ar`), `marco_entidades`/`marco_municipios`, y 2 AGEB sin polígono por entidad (en cuarentena).
 4. `scian` de leads: ahora sale del DENUE real (571 k) cuando hay establecimiento a ≤500 m; el resto sigue sin mapear (decisión pendiente del owner).
 5. ISM en zonas de baja competencia (1 competidor → miles): es `D/(O+1)`; decidir si el owner quiere un cap o una nota explícita en el reporte.
@@ -64,7 +64,7 @@ Datos oficiales cargados y reporte real regenerado con el **mismo link público*
 ```powershell
 docker compose ps
 docker compose exec api alembic current                    # debe decir 0006 (head)
-docker compose exec api pytest -q                           # 147 expected
+docker compose exec api pytest -q                           # 150 expected
 Invoke-RestMethod http://localhost:3000/api/v1/system/health
 Invoke-RestMethod http://localhost:3000/api/v1/leads/count
 Invoke-RestMethod "http://localhost:3000/api/v1/leads/count?entidad=Quer%C3%A9taro"   # 82
@@ -90,3 +90,4 @@ docker compose restart api
 - Por qué es así: `docs/decisions/` (ADR-001..013)
 - Historial: `changelog.md` · `ai-history.md` · `sessions/`
 - Estado y planes: `project-state.md` · `roadmap.md` · `backlog.md`
+

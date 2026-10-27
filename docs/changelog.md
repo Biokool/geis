@@ -2,6 +2,36 @@
 
 > Registro cronológico del trabajo real sobre el repositorio. Reconstruido el 2026-10-21 desde la bitácora de las sesiones de integración (previo a la adopción de git). Formato: fecha + categorías.
 
+## [2026-10-26] — Catálogo de giros visible en «Analizar» (autocompletado real)
+
+> El catálogo cargado por el ETL (529 alias / 205 clases) no se veía en la UI:
+> el formulario seguía usando una lista local de 15 giros. Ahora ambos campos se
+> alimentan del backend. Extiende ADR-013; excepción a AGENTS.md (frontend de
+> «Analizar») autorizada por el owner.
+
+### Added
+
+- `GET /api/v1/catalogs/giros` (`q`, `limit` ≤ 2 000): aliases de
+  `cat_giro_scian` unidos a la descripción de `cat_scian`.
+- `listGirosCatalog()` + `GiroCatalogoItem` en `frontend/src/lib/api.ts`.
+- `backend/tests/test_catalogs_giros.py` (3 casos: payload, filtro/límite y 422).
+
+### Changed
+
+- `frontend/src/pages/Analizar.tsx`: al montar carga `/catalogs/giros` y
+  `/catalogs/scian`; **Giro** autocompleta contra el catálogo real (búsqueda sin
+  acentos, 60 sugerencias) y **SCIAN** pasa a combobox por código o descripción
+  (40 sugerencias). Muestra «Catálogo cargado: N giros y M clases SCIAN». La
+  lista local de 15 giros queda solo como respaldo si el backend falla.
+- Placeholder del giro actualizado («gasolinera, abarrotes, gimnasio…»).
+
+### Verified
+
+- En vivo: 529 giros / 205 clases; `q=gasolinera` → 468411 «Comercio al por
+  menor de gasolina y diesel»; misma respuesta vía nginx (`localhost:3000`).
+- `npm run build` (tsc + vite) OK y `geis-web` reconstruido.
+- `pytest -q` → **150/150**.
+
 ## [2026-10-26] — Datos reales del INEGI: DENUE + Censo 2020 AGEB (CDMX y Querétaro), catálogo SCIAN y Overpass
 
 > La app deja de depender del seed demo: el reporte real de Querétaro se calcula

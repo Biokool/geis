@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.api.v1._common import lineage
 from app.db.session import get_db
-from app.schemas.catalogs import GeoFiltersOut, ScianListResponse, ScianOut
+from app.schemas.catalogs import (
+    GeoFiltersOut,
+    GiroListResponse,
+    GiroOut,
+    ScianListResponse,
+    ScianOut,
+)
 
 router = APIRouter(prefix="/catalogs", tags=["catalogs"])
 
@@ -118,3 +124,38 @@ def listar_scian(
         for f in filas
     ]
     return ScianListResponse(items=items, total=len(items), lineage=lineage(db))
+
+
+@router.get("/giros", response_model=GiroListResponse)
+def listar_giros(
+    q: str | None = Query(
+        default=None,
+        description="Filtra por etiqueta de giro, código o descripción SCIAN",
+    ),
+    limit: int = Query(default=1000, ge=1, le=2000),
+    db: Session = Depends(get_db),
+):
+    """Giros con alias resuelto a su clase SCIAN (`cat_giro_scian ⋈ cat_scian`).
+
+    Alimenta el autocompletado de «Analizar» con el catálogo real cargado por
+    el ETL (529 alias / 205 clases), en lugar de la lista local de 15 giros.
+    """
+    sql = (
+        "SELECT g.giro_label, g.scian_code, c.description, g.confidence "
+        "FROM prod.cat_giro_scian g "
+        "JOIN prod.cat_scian c ON c.scian_code = g.scian_code"
+    )
+    params: dict = {}
+    if q and q.strip():
+        sql += " WHERE g.giro_label ILIKE :q OR c.description ILIKE :q OR g.scian_code ILIKE :q"
+        params["q"] = f"%{q.strip()}%"
+    sql += " ORDER BY g.giro_label LIMIT :lim"
+    params["lim"] = limit
+    filas = db.execute(text(sql), params).all()
+    items = [
+        GiroOut(
+            giro=f[0], scian_code=f[1], description=f[2], confidence=float(f[3]),
+        )
+        for f in filas
+    ]
+    return GiroListResponse(items=items, total=len(items), lineage=lineage(db))

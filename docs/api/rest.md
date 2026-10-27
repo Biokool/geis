@@ -97,7 +97,7 @@ Fuente de verdad interactiva: <http://localhost:8000/docs> (OpenAPI 3). Este doc
 
 | Router | Endpoints | Notas |
 |---|---|---|
-| `/catalogs` | `GET /geo-filters`, `GET /scian` | `geo-filters` devuelve `entidades`, `municipios`, `colonias`, `cps`, `scians` (cascada desde leads y DENUE). `scian` es el catálogo con intensidad térmica |
+| `/catalogs` | `GET /geo-filters`, `GET /scian`, `GET /giros` | `geo-filters` devuelve `entidades`, `municipios`, `colonias`, `cps`, `scians` (cascada desde leads y DENUE). `scian` es el catálogo con intensidad térmica. `giros` expone los aliases curados resueltos a clase SCIAN (`q` y `limit`, máx. 2 000) y alimenta el autocompletado de «Analizar» |
 | `/etl` | `GET /status` | Estado de ETLs DENUE/Censo |
 | `/geo` | `GET /weather` | Clima (Open-Meteo, caché 6 h) para scoring |
 | `/system` | `GET /health` | Salud integral del stack |

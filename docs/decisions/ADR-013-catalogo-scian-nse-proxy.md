@@ -1,7 +1,7 @@
 # ADR-013 — Catálogo SCIAN curado (top-200 + alias) y proxy NSE del Censo 2020
 
 - **Estado:** Aceptada (2026-10-26)
-- **Ámbito:** `backend/app/data/catalogo_scian.py` (nuevo), `backend/app/etl/jobs/catalogo_scian.py` (nuevo), `backend/app/etl/jobs/censo_ageb.py` (NSE), tablas `prod.cat_scian` / `prod.cat_giro_scian` / `prod.inegi_agebs` (excepción acotada a AGENTS.md: autorizada por el owner)
+- **Ámbito:** `backend/app/data/catalogo_scian.py` (nuevo), `backend/app/etl/jobs/catalogo_scian.py` (nuevo), `backend/app/api/v1/catalogs.py` + `backend/app/schemas/catalogs.py` (`GET /catalogs/giros`), `frontend/src/lib/api.ts` y `frontend/src/pages/Analizar.tsx` (autocompletado), `backend/app/etl/jobs/censo_ageb.py` (NSE), tablas `prod.cat_scian` / `prod.cat_giro_scian` / `prod.inegi_agebs` (excepción acotada a AGENTS.md: autorizada por el owner)
 - **Relacionadas:** ADR-011 (datos que alimentan el catálogo), SRS §3.2/§3.4/§3.9, `sessions/2026-10-26.md`
 
 ## Contexto
@@ -32,7 +32,7 @@
    clases relevantes (supermercados, restaurantes por tipo, escuelas,
    universidades, hoteles, talleres, lavanderías…). Semántica:
    - `thermal_intensity` = propensión a requerir climatización/refrigeración
-     (calor del proceso); manofactura de alimentos ~0.8–0.9, retail ~0.2–0.4.
+     (calor del proceso); manufactura de alimentos ~0.8–0.9, retail ~0.2–0.4.
    - `base_attractiveness` = fuerza como ancla de Huff: supermercados 0.95,
      universidades/hospitales 0.85, conveniencia 0.5–0.6.
    - `lambda_default` = decaimiento por distancia: conveniencia 2.5–3.0,
@@ -47,20 +47,26 @@
    parámetros) y en `cat_giro_scian (giro_label, scian_code)`. Si una clase con
    alias no existe en el DENUE cargado, se omite el alias con warning (nunca se
    inventa la descripción).
+5. **Visible en la UI:** `GET /catalogs/giros?q=&limit=` (join alias+clase,
+   máx. 2 000) expone las 529 etiquetas, y «Analizar» carga `/catalogs/giros` +
+   `/catalogs/scian` al montar: el autocompletado de **Giro** ofrece el catálogo
+   real (búsqueda sin acentos, tope de 60 sugerencias) y el campo **SCIAN** es
+   un combobox por código o descripción (tope 40). La lista local de 15 giros
+   queda solo como respaldo si el catálogo no carga.
 
 ### Proxy NSE
 
-5. **Fórmula:** score 0–1 = promedio ponderado de la cobertura de bienes
+6. **Fórmula:** score 0–1 = promedio ponderado de la cobertura de bienes
    (`VPH_INTER` 35 %, `VPH_PC` 25 %, `VPH_AUTOM` 25 %, `VPH_CEL` 15 %),
    denominador `VIVPARH_CV`, pesos renormalizados si falta un dato.
    Bandas: **Alto ≥ 0.80**, Medio a medio alto ≥ 0.60, Medio ≥ 0.45,
    Medio bajo ≥ 0.30, Bajo < 0.30 (etiqueta simplificada, **no** es el índice
    AMAI oficial).
-6. **Grupo 25–29 (estimado):** `R = POB15_64 − P_15A17 − P_18A24 −
+7. **Grupo 25–29 (estimado):** `R = POB15_64 − P_15A17 − P_18A24 −
    (P_60YMAS − POB65_MAS)`; se reparte `round(R·5/35)` a 25–29 (supuesto
    uniforme dentro de 25–59) y el resto a 30–59. Queda documentado en
    `data_editions.notes` y es reproducible.
-7. `pob_sin_clasificar = max(0, POBTOT − POB0_14 − POB15_64 − POB65_MAS)`
+8. `pob_sin_clasificar = max(0, POBTOT − POB0_14 − POB15_64 − POB65_MAS)`
    (guardia ante descuadres del CSV), y `prom_ocupantes_viv` acotado a 99.99
    por el `Numeric(4,2)`.
 
@@ -73,6 +79,10 @@
 - ✅ `resolver_scian` ya encuentra giros comunes («abarrotes»→461110,
   «gimnasio»→713943, «lavandería»→812210, «veterinaria»→541941) y el reporte de
   naves industriales resuelve `531112` sin aviso de catálogo semilla.
+- ✅ El catálogo **se ve en «Analizar»**: al montar la página se cargan giros y
+  clases; «gasolinera» sugiere 468411 con su descripción y el campo SCIAN
+  filtra por código o texto. Si el backend no responde, quedan los 15 giros
+  locales (degradación silenciosa, sin bloquear el análisis).
 - ✅ Refresco reproducible con un comando (`catalogo_scian --top 200`); sin
   datos nuevos no cambia nada.
 - ⚠️ Los parámetros son **heurísticos por sector**, no una calibración

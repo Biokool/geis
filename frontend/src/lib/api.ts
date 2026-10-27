@@ -573,6 +573,19 @@ export function listScianCatalog() {
   return get<{ items: ScianCatalogItem[]; total: number }>('/catalogs/scian');
 }
 
+/** Giro con alias resuelto a SCIAN (`GET /catalogs/giros`). */
+export interface GiroCatalogoItem {
+  giro: string;
+  scian_code: string;
+  description?: string | null;
+  confidence?: number;
+}
+
+export function listGirosCatalog(q?: string) {
+  const query = q && q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+  return get<{ items: GiroCatalogoItem[]; total: number }>(`/catalogs/giros${query}`);
+}
+
 /** Crea una investigación (`POST /investigations`). */
 export function createInvestigation(body: {
   title: string;

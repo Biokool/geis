@@ -21,6 +21,19 @@ class ScianListResponse(BaseModel):
     lineage: Lineage
 
 
+class GiroOut(BaseModel):
+    giro: str
+    scian_code: str
+    description: str | None = None
+    confidence: float
+
+
+class GiroListResponse(BaseModel):
+    items: list[GiroOut]
+    total: int
+    lineage: Lineage
+
+
 class GeoFiltersOut(BaseModel):
     """Valores geográficos disponibles con cascada (GET /catalogs/geo-filters).
 
