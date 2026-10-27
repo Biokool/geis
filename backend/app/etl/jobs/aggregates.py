@@ -40,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
                SELECT d.cve_ageb, d.scian_code, d.estrato_ordinal, COUNT(*), d.edition_id
                FROM prod.denue_establishments d
                JOIN prod.data_editions e ON e.edition_id = d.edition_id
+               JOIN prod.inegi_agebs a ON a.cvegeo = d.cve_ageb
                WHERE e.edition = :ed AND d.is_active AND d.cve_ageb IS NOT NULL
                GROUP BY d.cve_ageb, d.scian_code, d.estrato_ordinal, d.edition_id"""
         ), {"ed": args.edition})

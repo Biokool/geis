@@ -2,6 +2,75 @@
 
 > Registro cronológico del trabajo real sobre el repositorio. Reconstruido el 2026-10-21 desde la bitácora de las sesiones de integración (previo a la adopción de git). Formato: fecha + categorías.
 
+## [2026-10-26] — Datos reales del INEGI: DENUE + Censo 2020 AGEB (CDMX y Querétaro), catálogo SCIAN y Overpass
+
+> La app deja de depender del seed demo: el reporte real de Querétaro se calcula
+> con 571 316 establecimientos DENUE y 3 320 AGEB censales. Detalle y
+> aprendizajes en `sessions/2026-10-26.md`; decisiones en ADR-011/012/013.
+
+### Added
+
+- `backend/app/etl/jobs/denue_bulk.py` — carga masiva del DENUE por entidad
+  (`--edition`, `--entidades`, `--raw-dir`, `--publicada`): DBF `latin-1` con
+  `pyshp`, validación + cuarentena, lotes de 2 000, idempotencia por
+  (edición, `cve_ent`) y mapeo `per_ocu` → `estrato_ordinal`.
+- `backend/app/etl/jobs/censo_ageb.py` — Censo 2020 AGEB urbana + geometrías del
+  Marco Geoestadístico (`<ent>a.shp`, LCC EPSG:6362 → WGS84), proxy NSE y
+  `agg_ageb_scian` recalibrado con datos observados.
+- `backend/app/data/catalogo_scian.py` + `backend/app/etl/jobs/catalogo_scian.py`
+  — catálogo data-driven (top-200 del DENUE + clases con alias): **205 clases**
+  y **529 alias** para 193 clases; parámetros por sector y override por clase.
+- `backend/tests/test_etl_inegi.py` — 8 tests de mapeos DENUE, bandas NSE,
+  invariantes del catálogo, forma del stub, rutas del API y espejos Overpass.
+- `docs/decisions/ADR-011-ingesta-inegi-real.md`, `ADR-012-overpass-espejos-timeout.md`,
+  `ADR-013-catalogo-scian-nse-proxy.md`.
+
+### Fixed
+
+- `connectors/denue_api.py`: rutas reales del API v1
+  (`/buscar/{cond}/{lat},{lon}/{radio}/{token}`, `/ficha/{id}/{token}`), radio
+  acotado a 5 000 m y stub con las **22 claves reales** (antes apuntaba a una
+  ruta inexistente y siempre caía en stub).
+- `.env`: el token vive en **`DENUE_API_TOKEN`** (36 caracteres); `DENUE_TOKEN`
+  no lo leía `config.py`. Tras cambiar `.env` hay que **recrear** el contenedor
+  (`up -d api`), no solo `restart`.
+- `connectors/overpass.py`: espejos en cascada (`overpass-api.de` →
+  `kumi.systems` → `private.coffee`), timeout 45 s y descarte de
+  `overpass.osm.ch` (200 con dataset incompleto).
+- `etl/jobs/aggregates.py`: `JOIN prod.inegi_agebs` al recalcular
+  `agg_ageb_scian` (la FK reventaba con el ~3 % sin AGEB urbana).
+
+### Removed
+
+- Seed demo `DENUE_SEED_2026`: 40 establecimientos y 4 AGEB ficticias de la
+  Condesa (y su fila de edición) para no mezclar datos simulados con oficiales.
+
+### Verified
+
+- DENUE `DENUE_2026_05` (publicada 2026-05-20): **571 316** filas válidas
+  (CDMX 462 520 · Qro 108 796; 284 en cuarentena). Cobertura DENUE→AGEB:
+  **99.7 % CDMX / 97.0 % Qro**.
+- Censo `CPV2020_AGEB_09`/`_22` (2021-07-26): **3 320 AGEB** (CDMX 2 431 con
+  9 138 524 hab · Qro 889 con 1 873 781 hab), **234 846** filas en
+  `agg_ageb_scian`.
+- Reporte real regenerado (`b576bed8-c2ff-40bd-8e45-8ecc5ae141ed`, AVANZAR, 82 s)
+  con censo observado a 2 km (129 069 hab; Internet 85.7 %, auto 58.1 %,
+  PC 62.6 %) y **12 vialidades** Overpass (Av. 5 de Febrero a 48.6 m). El link
+  público `/r/<token>` (share id 3) se repuntó al nuevo reporte: misma URL.
+- `pytest -q` → **147/147** (8 nuevos).
+
+### Notes
+
+- Datos crudos (271 MB) en `backend/data/raw/`, **gitignored**.
+- Solo AGEB **urbanas**; manzanas y AGEB rurales quedan para fase 2. 2 AGEB por
+  entidad sin polígono en el MG 2020 (documentadas en cuarentena).
+- El conector del API no trae el código SCIAN (solo `Clase_actividad`): el
+  análisis por clase sigue usando el bulk.
+- ISM alto en zonas de baja competencia (1 competidor → miles) es la fórmula
+  `D/(O+1)`, no un bug; el veredicto lo lee como océano azul.
+- El backend montado en vivo **no recarga**: tras cambios de conectores/ETL,
+  `docker compose restart api`.
+
 ## [2026-10-26] — Validación funcional E2E completa: cadena real, rama warm del 03 y filtros geo operativos
 
 > Recorrido función por función contra el stack real, corrigiendo los bugs

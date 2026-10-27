@@ -4,16 +4,31 @@ Consulta ``way[highway ∈ {trunk, primary, secondary}]`` en un radio
 (default 2 km) y devuelve nombre (o tipo si la vía no tiene nombre) y la
 distancia mínima aproximada del punto a la geometría de la vía
 (Haversine al vértice más cercano). Función a nivel módulo, mockeable;
-ante fallo/timeout (15 s) devuelve lista vacía (honesto, no inventa vías).
+ante fallo/timeout (30 s por espejo) devuelve lista vacía (honesto, no
+inventa vías).
+
+Espejos probados desde el contenedor (2026-10): ``overpass-api.de``
+responde con ~45 s de frío y es el primario; ``kumi.systems`` y
+``private.coffee`` cubren caídas del primario. ``overpass.osm.ch`` se
+descarta: responde 200 pero con datos incompletos (0 vías en el centro
+de CDMX).
 """
 from __future__ import annotations
 
+import logging
 import math
 
 import httpx
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-TIMEOUT_S = 15.0
+log = logging.getLogger(__name__)
+
+OVERPASS_MIRRORS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+)
+OVERPASS_URL = OVERPASS_MIRRORS[0]
+TIMEOUT_S = 45.0
 TIPOS_VIA = ("trunk", "primary", "secondary")
 
 
@@ -30,19 +45,25 @@ def fetch_vialidades(lat: float, lon: float, radio_m: int = 2000,
                      limite: int = 12) -> list[dict]:
     """Vialidades principales a ≤ radio_m: [{nombre, tipo, distancia_m}]."""
     query = (
-        "[out:json][timeout:12];"
+        "[out:json][timeout:20];"
         f'way["highway"~"^({"|".join(TIPOS_VIA)})$"]'
         f"(around:{radio_m},{lat},{lon});"
         "out geom;"
     )
-    try:
-        resp = httpx.post(
-            OVERPASS_URL, data={"data": query}, timeout=TIMEOUT_S,
-            headers={"User-Agent": "GEIS/1.0 (geis-local)"},
-        )
-        resp.raise_for_status()
-        datos = resp.json()
-    except (httpx.HTTPError, ValueError):
+    datos = None
+    for espejo in OVERPASS_MIRRORS:
+        try:
+            resp = httpx.post(
+                espejo, data={"data": query}, timeout=TIMEOUT_S,
+                headers={"User-Agent": "GEIS/1.0 (geis-local)"},
+            )
+            resp.raise_for_status()
+            datos = resp.json()
+            break
+        except (httpx.HTTPError, ValueError) as exc:
+            log.warning("Overpass %s falló (%s); probando siguiente espejo",
+                        espejo, type(exc).__name__)
+    if not isinstance(datos, dict):
         return []
     vialidades: list[dict] = []
     for el in (datos.get("elements") if isinstance(datos, dict) else []) or []:

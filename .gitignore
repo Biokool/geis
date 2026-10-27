@@ -12,3 +12,6 @@ backup_*.sql
 
 # Datos en runtime del módulo Radar (señales del SDR; usar input.example.json)
 signals/input.json
+
+# Datos crudos de ingesta (INEGI: DENUE, Censo 2020, cartografía). No versionar.
+backend/data/
